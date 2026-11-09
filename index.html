@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.8">
-<title>Vách Núi — Cảnh vách núi 0.2.8</title>
+<meta name="vn-ver" content="0.2.9">
+<title>Vách Núi — Cảnh vách núi 0.2.9</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.8</div>
+<div id="ver">Vách Núi · v0.2.9</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.8';
+const VN_VER = '0.2.9';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -77,26 +77,32 @@ const VN_VER = '0.2.8';
    rope rails) spans EAST from the launch shelf to the end disc, local
    +X toward the disc. Its deck sags, so placement is a single source of
    truth: BRIDGE feeds BOTH the mesh transform and deckYAt(), and the
-   walked surface can never drift from the seen one. Uniform scale 8.2
-   (8.03 m long, 2.96 m wide) around centre (6.32, -6); samples are the
-   measured deck-top heights along the model (t = 0 west end, 1 east).
-   The deck ends differ (0.090 west vs 0.105 east local), so the group
-   is pitched by tilt = atan(-(0.105 - 0.090) / 0.98) = -0.015305 rad.
-   baseY = 12.4806 puts BOTH deck ends at world y = 13.28 and the
-   sagging middle at ~12.73. (v0.2.8: raised +0.38 from the original
-   12.1006 — a rock rib under the span at x 5.1-6.9 reads up to 12.74
-   on the heightmap and pierced the old deck line; at 12.4806 the
-   deck clears the rib by >= 0.05 everywhere along the strip. The
-   deck now steps DOWN 0.38 onto the end disc (12.90) at the east
-   seam and 0.15 down to the launch shelf (13.13) at the west — both
-   inside the 0.65 rise gate.) */
+   walked surface can never drift from the seen one. Around centre
+   (6.32, -6); samples are the measured deck-top heights along the
+   model (t = 0 west end, 1 east). v0.2.9: the span is STRETCHED along
+   X only — scaleX 9.676 = 8.2 x 1.18, scaleY/Z stay 8.2 — because at
+   8.03 m the west tip floated past the launch shelf edge; stretched
+   to 9.48 m it lands ON the shelf (mesh span 1.58..11.06). The deck
+   ends differ (0.090 west vs 0.105 east local), so the group is
+   pitched by tilt = atan(-(0.105 - 0.090) * scaleY / (0.98 * scaleX))
+   = atan(-0.123 / 9.48248) = -0.012971 rad, and baseY = 12.4806 (the
+   ends-solve barely moves with the stretch) puts BOTH deck ends at
+   world y = 13.28 and the sagging middle at ~12.73. (v0.2.8: raised
+   +0.38 from the original 12.1006 — a rock rib under the span at
+   x 5.1-6.9 reads up to 12.74 on the heightmap and pierced the old
+   deck line. Re-verified for the stretched profile in v0.2.9: the
+   deck still clears the rib everywhere along the strip, min margin
+   +0.053 at x=6.2. The deck steps DOWN ~0.37 onto the end disc
+   (12.90) at the east seam and 0.15 down to the launch shelf (13.13)
+   at the west — both inside the 0.65 rise gate.) */
 const BRIDGE = {
-  cx: 6.32, cz: -6.0, scale: 8.2, baseY: 12.4806, tilt: -0.015305,
-  x0: 2.30, x1: 10.33,   // mesh span: cx -+ 0.49 * scale = 2.302..10.338
-  groundX1: 10.40,      // ground strip runs on to the END_DISC edge
-                        // (11.5 - 1.1); deckYAt clamps there at 13.280,
-                        // then the END_DISC check takes over at 12.90 —
-                        // a deliberate 0.38 step down, inside the gate
+  cx: 6.32, cz: -6.0, scaleX: 9.676, scaleY: 8.2, baseY: 12.4806, tilt: -0.012971,
+  x0: 1.58, x1: 11.06,   // mesh span: cx -+ 0.49 * scaleX = 1.579..11.061
+  groundX1: 10.40,      // ground strip still ends at the END_DISC edge
+                        // (11.5 - 1.1) although the stretched mesh
+                        // overshoots to 11.06 and lands on the Buddha
+                        // rock; the END_DISC check takes over at 12.90 —
+                        // a deliberate ~0.37 step down, inside the gate
   hw: 1.05,             // walkable half-width of the deck strip
   samples: [
     [0.03, 0.090], [0.10, 0.104], [0.16, 0.106], [0.23, 0.099], [0.30, 0.072],
@@ -118,10 +124,11 @@ const BUDDHA_POS = { x: 12.05, z: -6.0 };
    spans open air over the deep drop. */
 const MOUTH_DISC = { x: 1.95, z: -6.0, y: 13.20, r: 0.85 };
 /* Deck-top height (world y) of the bridge at a world x: lerp the
-   measured profile, then apply the same scale + tilt + baseY as the
-   mesh group transform. */
+   measured profile (t mapped through scaleX), then apply the same
+   scales + tilt + baseY as the mesh group transform — heights run
+   through scaleY, the along-span tilt lever through scaleX. */
 function deckYAt(worldX) {
-  const xl = (worldX - BRIDGE.cx) / BRIDGE.scale;
+  const xl = (worldX - BRIDGE.cx) / BRIDGE.scaleX;
   let t = (xl + 0.49) / 0.98;
   t = Math.min(1, Math.max(0, t));
   const s = BRIDGE.samples;
@@ -135,7 +142,9 @@ function deckYAt(worldX) {
       }
     }
   }
-  return BRIDGE.baseY + BRIDGE.scale * (xl * Math.sin(BRIDGE.tilt) + dy * Math.cos(BRIDGE.tilt));
+  return BRIDGE.baseY
+    + xl * BRIDGE.scaleX * Math.sin(BRIDGE.tilt)
+    + dy * BRIDGE.scaleY * Math.cos(BRIDGE.tilt);
 }
 
 /* ================= State (all declared before animate() runs) ================= */
@@ -148,6 +157,7 @@ const keys = { fwd: false, left: false, right: false };
 let bowGroup = null, rigG = null; // static rig wrappers around bodyG (temple rig)
 let buddhaGroup = null;
 let bridgeGroup = null;         // rope-bridge group (transform from BRIDGE)
+let buddhaRock = null;          // miniature island under the Buddha (v0.2.9)
 const lampGroups = [];  // candle lamp groups (8 lotus + 2 Buddha pair)
 const lampGlows = [];   // { mat, sprite, base, phase } per lamp, for the flicker loop
 let animState = 'idle';           // idle | walk | xa | bow | recover
@@ -317,13 +327,28 @@ function addMesh(geo, mat, x, y, z, parent) {
   scene.add(bridgeGroup);
   new GLTFLoader().load('models/bridge.glb', (gltf) => {
     const m = gltf.scene;
-    m.scale.setScalar(BRIDGE.scale);
+    m.scale.set(BRIDGE.scaleX, BRIDGE.scaleY, BRIDGE.scaleY); // X stretched x1.18 (v0.2.9); Y/Z stay 8.2
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     bridgeGroup.add(m);
   }, undefined, () => {});
-  addMesh(new THREE.CylinderGeometry(END_DISC.r, END_DISC.r * 1.25, 0.6, 18), MAT.discTop, END_DISC.x, END_DISC.y - 0.3, END_DISC.z);
-  const lump = addMesh(new THREE.ConeGeometry(1.15, 3.6, 8), MAT.rock, END_DISC.x, END_DISC.y - 2.2, END_DISC.z);
-  lump.rotation.x = Math.PI;
+  /* Buddha rock (v0.2.9): the fake grey disc + support cone are gone.
+     The rock point is the island model itself, reused at miniature
+     scale (3.0 = 7.5% of the main island's x40): its apron band (local
+     y 0.203 — the band that sits at world y=0 on the main island) lands
+     exactly on the END_DISC top, so the statue, the single candle
+     cluster and the player's bow spot keep standing at 12.90, now on
+     real rock. Rotated pi so the island's east flank faces the bridge.
+     Only the visual changed — groundAt's END_DISC branch is untouched. */
+  buddhaRock = new THREE.Group();
+  buddhaRock.position.set(END_DISC.x, END_DISC.y - 0.203 * 3.0, END_DISC.z);
+  buddhaRock.rotation.y = Math.PI;
+  scene.add(buddhaRock);
+  new GLTFLoader().load('models/mountain.glb', (gltf) => {
+    const g = gltf.scene;
+    g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    g.scale.setScalar(3.0);
+    buddhaRock.add(g);
+  }, undefined, () => {});
 }
 { // real Buddha statue at the bridge end, facing back west (-X) toward the bridge
   const b = new THREE.Group();
@@ -908,6 +933,7 @@ window.__vn = {
   lamps: () => lampGroups, lampGlows: () => lampGlows,
   startXa, startBow, sampleGround, groundAt, deckYAt,
   bridge: () => bridgeGroup, bridgeData: () => BRIDGE, mouthDisc: () => MOUTH_DISC,
+  buddhaRock: () => buddhaRock, endDisc: () => END_DISC,
   setWalk: (x, z) => { walkTarget = new THREE.Vector3(x, 0, z); },
   keys,
   camera: () => camera, controls: () => controls,
