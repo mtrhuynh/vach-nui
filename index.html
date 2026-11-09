@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.1">
-<title>Vách Núi — Cảnh vách núi 0.2.1</title>
+<meta name="vn-ver" content="0.2.2">
+<title>Vách Núi — Cảnh vách núi 0.2.2</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.1</div>
+<div id="ver">Vách Núi · v0.2.2</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.1';
+const VN_VER = '0.2.2';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -232,16 +232,22 @@ function addMesh(geo, mat, x, y, z, parent) {
   const lump = addMesh(new THREE.ConeGeometry(1.15, 3.6, 8), MAT.rock, END_DISC.x, END_DISC.y - 2.2, END_DISC.z);
   lump.rotation.x = Math.PI;
 }
-{ // small gold Buddha placeholder at the plank end, facing back west (-X)
+{ // real Buddha statue at the plank end, facing back west (-X) toward the plank
   const b = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 0.1, 14), MAT.gold); base.position.y = 0.05; b.add(base);
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.30, 4, 10), MAT.gold); body.position.y = 0.42; b.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), MAT.gold); head.position.y = 0.79; b.add(head);
-  const top = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), MAT.gold); top.position.y = 0.90; b.add(top);
-  b.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
   b.position.set(BUDDHA_POS.x, END_DISC.y, BUDDHA_POS.z);
   b.rotation.y = -Math.PI / 2;
   scene.add(b);
+  new GLTFLoader().load('models/buddha.glb', (gltf) => {
+    const m = gltf.scene;
+    const bb = new THREE.Box3().setFromObject(m);
+    const sz = new THREE.Vector3(); bb.getSize(sz);
+    const ctr = new THREE.Vector3(); bb.getCenter(ctr);
+    const s = 1.0 / sz.y;
+    m.scale.setScalar(s);
+    m.position.set(-ctr.x * s, -bb.min.y * s, -ctr.z * s);
+    m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    b.add(m);
+  }, undefined, () => {});
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffbe78, transparent: true, opacity: 0.55, depthWrite: false }));
   halo.scale.set(2.4, 2.4, 1);
   halo.position.set(BUDDHA_POS.x + 0.25, END_DISC.y + 0.55, BUDDHA_POS.z);
