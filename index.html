@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.3">
-<title>Vách Núi — Cảnh vách núi 0.2.3</title>
+<meta name="vn-ver" content="0.2.4">
+<title>Vách Núi — Cảnh vách núi 0.2.4</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.3</div>
+<div id="ver">Vách Núi · v0.2.4</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.3';
+const VN_VER = '0.2.4';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -93,6 +93,8 @@ let faceTarget = null;          // target rotation.y or null
 const keys = { fwd: false, left: false, right: false };
 let bowGroup = null, rigG = null; // prostration pitch rig wrapping bodyG
 let buddhaGroup = null;
+const lampGroups = [];  // candle lamp groups (16 path + 2 Buddha pair)
+const lampGlows = [];   // { mat, sprite, base, phase } per lamp, for the flicker loop
 let animState = 'idle';           // idle | walk | xa | prostrate | recover
 let animT = 0;                    // time inside xa / recover
 let stillT = 0;                   // seconds without movement (breath gate)
@@ -218,7 +220,6 @@ const MAT = {
   woodDk: new THREE.MeshStandardMaterial({ color: 0x64482c, roughness: 0.95 }),
   gold:   new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.35, metalness: 0.65, emissive: 0x442a00, emissiveIntensity: 0.6 }),
   chain:  new THREE.LineBasicMaterial({ color: 0x2c2c30 }),
-  lampGlow: new THREE.MeshBasicMaterial({ color: 0xffc37a }),
 };
 
 /* ================= Island build ================= */
@@ -283,27 +284,78 @@ function addMesh(geo, mat, x, y, z, parent) {
   scene.add(halo);
 }
 
-/* ================= Lotus lamps (emissive + glow sprites; 2 real lights) ================= */
-function lotusLamp(x, y, z) {
+/* ================= Candle lamps (models/candles.glb clusters) =================
+   One proto load; every site clones it. The model (wac4official: three
+   melted candles on a woven tray) is natively centred (bounds x/z about
+   +-0.498, base y=0, top y=0.780); it is normalized once so the tray
+   width is 1, then each lamp scales a clone to its role's tray width.
+   Tall-candle flame: a vertex dump of the source puts the highest flame
+   tip at native (0.054, 0.780, -0.122), i.e. normalized (0.054, 0.783,
+   -0.121); the glow sprite anchors there, lifted a touch (CANDLE_FLAME).
+   Grounding: group y = groundAt(x, z) - 0.03 (tray sinks slightly into
+   the surface). groundAt == sampleGround at every path site except the
+   plank-end one: that site sits inside the END_DISC radius, where the
+   heightmap alone reads the slope far below the built disc (4.09 m) and
+   would bury the cluster under the disc's rock — groundAt returns the
+   disc top there, as it does for the Buddha pair. */
+const CANDLE_FLAME = { x: 0.054, y: 0.803, z: -0.121 };
+const CANDLE_FLAME_HEADING = Math.atan2(CANDLE_FLAME.x, CANDLE_FLAME.z);
+let candleProto = null;
+const pendingCandleLamps = [];
+new GLTFLoader().load('models/candles.glb', (gltf) => {
+  const raw = gltf.scene;
+  const bb = new THREE.Box3().setFromObject(raw);
+  const sz = new THREE.Vector3(); bb.getSize(sz);
+  const ctr = new THREE.Vector3(); bb.getCenter(ctr);
+  const sN = 1 / Math.max(sz.x, sz.z);
+  raw.scale.setScalar(sN);
+  raw.position.set(-ctr.x * sN, -bb.min.y * sN, -ctr.z * sN);
+  raw.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  candleProto = new THREE.Group();
+  candleProto.add(raw);
+  for (const p of pendingCandleLamps) attachCandle(p.g, p.width);
+}, undefined, () => {});
+function attachCandle(g, width) {
+  const c = candleProto.clone(true);
+  c.scale.setScalar(width);
+  g.add(c);
+}
+function candleLamp(x, yFallback, z, width, aimHeading) {
   const g = new THREE.Group();
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.5, 6), MAT.woodDk);
-  stem.position.y = 0.25; g.add(stem);
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), MAT.lampGlow);
-  bulb.position.y = 0.56; g.add(bulb);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa050, transparent: true, opacity: 0.8, depthWrite: false }));
-  glow.scale.set(1.7, 1.7, 1); glow.position.y = 0.56; g.add(glow);
-  const gy = sampleGround(x, z);
-  g.position.set(x, gy !== null ? gy - 0.05 : y, z);
+  const gy = groundAt(x, z);
+  g.position.set(x, gy !== null ? gy - 0.03 : yFallback, z);
+  const idx = lampGroups.length;
+  g.rotation.y = aimHeading !== undefined
+    ? aimHeading - CANDLE_FLAME_HEADING
+    : (idx * 2.399963) % (Math.PI * 2);
+  const glowMat = new THREE.SpriteMaterial({ map: glowTex, color: 0xffa050, transparent: true, opacity: 0.62, depthWrite: false });
+  const glow = new THREE.Sprite(glowMat);
+  const gs = width * 1.55;
+  glow.scale.set(gs, gs, 1);
+  glow.position.set(CANDLE_FLAME.x * width, CANDLE_FLAME.y * width, CANDLE_FLAME.z * width);
+  g.add(glow);
+  lampGlows.push({ mat: glowMat, sprite: glow, base: gs, phase: idx * 1.71 });
+  if (candleProto) attachCandle(g, width); else pendingCandleLamps.push({ g, width });
   scene.add(g);
+  lampGroups.push(g);
+  return g;
 }
 for (let i = 0; i < 8; i++) {
   const a = Math.PI * (0.06 + 0.88 * (i / 7));
-  lotusLamp(Math.cos(a) * 17.4, 0, Math.sin(a) * 17.4 * 0.96 + 1.5);
+  candleLamp(Math.cos(a) * 17.4, 0, Math.sin(a) * 17.4 * 0.96 + 1.5, 0.55);
 }
-lotusLamp(2.6, 0, 6.5); lotusLamp(-2.8, 0, -0.5);
-lotusLamp(4.2, 2.7, 6.2); lotusLamp(-3.6, 5.4, 2.8);
-lotusLamp(2.9, 8.5, -1.5); lotusLamp(-1.8, 10.7, -5.0);
-lotusLamp(2.4, 12.9, -8.4); lotusLamp(11.0, 12.9, -6.8);
+candleLamp(2.6, 0, 6.5, 0.55); candleLamp(-2.8, 0, -0.5, 0.55);
+candleLamp(4.2, 2.7, 6.2, 0.55); candleLamp(-3.6, 5.4, 2.8, 0.55);
+candleLamp(2.9, 8.5, -1.5, 0.55); candleLamp(-1.8, 10.7, -5.0, 0.55);
+candleLamp(2.4, 12.9, -8.4, 0.55);
+/* Plank-end path lamp: nudged from (11.0, -6.8) to (10.85, -6.55) — the
+   Buddha pair's north tray (r 0.425 at (11.55, -6.85)) would overlap this
+   cluster's tray (r 0.275) at the old spot (centres 0.55 apart < 0.70). */
+candleLamp(10.85, 12.9, -6.55, 0.55);
+/* The Buddha pair: big clusters flanking the statue's front, tall
+   candles aimed outward, away from the statue at (12.05, -6). */
+candleLamp(11.55, END_DISC.y, -6.85, 0.85, Math.atan2(-0.5, -0.85));
+candleLamp(11.55, END_DISC.y, -5.15, 0.85, Math.atan2(-0.5, 0.85));
 {
   const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
   const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(-0.6, 14.3, -6.0); scene.add(p2);
@@ -645,6 +697,11 @@ function animate() {
     c.position.x += c.userData.speed * dt;
     if (c.position.x > 115) c.position.x = -115;
   }
+  for (const L of lampGlows) {
+    L.mat.opacity = 0.55 + 0.13 * Math.sin(t * 11 + L.phase) + 0.05 * Math.sin(t * 23 + L.phase * 2);
+    const fs = L.base * (1 + 0.06 * Math.sin(t * 9 + L.phase * 1.3));
+    L.sprite.scale.set(fs, fs, 1);
+  }
   // camera target follows the avatar; camera rides along by the same delta
   camTmp.set(player.position.x, player.position.y + 1.0, player.position.z);
   camDelta.copy(camTmp).sub(controls.target).multiplyScalar(Math.min(1, 5 * dt));
@@ -668,6 +725,7 @@ window.__vn = {
   get proPitch() { return proPitch; }, get proScale() { return proScale; },
   get walkBlend() { return walkBlend; },
   chip: bowChip, scene: () => scene,
+  lamps: () => lampGroups, lampGlows: () => lampGlows,
   startXa, startProstration, sampleGround, groundAt,
   setWalk: (x, z) => { walkTarget = new THREE.Vector3(x, 0, z); },
   keys,
