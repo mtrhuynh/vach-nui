@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.2">
-<title>Vách Núi — Cảnh vách núi 0.2.2</title>
+<meta name="vn-ver" content="0.2.3">
+<title>Vách Núi — Cảnh vách núi 0.2.3</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.2</div>
+<div id="ver">Vách Núi · v0.2.3</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.2';
+const VN_VER = '0.2.3';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -91,7 +91,19 @@ let bodyG = null, upperG = null; // rig: upperG is the bow pivot
 let walkTarget = null;          // Vector3 or null
 let faceTarget = null;          // target rotation.y or null
 const keys = { fwd: false, left: false, right: false };
-let bowing = false, bowT = 0;
+let bowGroup = null, rigG = null; // prostration pitch rig wrapping bodyG
+let buddhaGroup = null;
+let animState = 'idle';           // idle | walk | xa | prostrate | recover
+let animT = 0;                    // time inside xa / recover
+let stillT = 0;                   // seconds without movement (breath gate)
+let walkPhase = 0, walkBlend = 0; // gait cycle + ease in/out (~0.15 s)
+let proPhase = 'kneel', proT = 0, proCount = 0; // prostration sub-machine
+let proPitch = 0, proScale = 1;   // currently applied prostration pose
+let recDur = 0.4, recPitch0 = 0, recScale0 = 1, recXa0 = 0;
+let onEndPrev = false, walkInputPrev = false;
+const lastPos = new THREE.Vector3(0, 0, 10);
+const XA_PITCH = 0.34, BOW_PITCH = 1.22, KNEEL_SQ = 0.64;
+function smooth01(x) { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); }
 let firstFrame = true;
 const clouds = [];
 const camTmp = new THREE.Vector3();
@@ -103,6 +115,22 @@ const tapPoint = new THREE.Vector3();
 let downX = 0, downY = 0, downT = 0;
 
 const bowChip = document.getElementById('bowChip');
+
+/* Heightmap decode (data in heightmap.js): done up here, before any
+   building, so placement code can sample the real surface immediately. */
+const HMAP_SENTINEL = -999;
+let hmapData = null, HMAP_N = 0, HMAP_MIN = 0, HMAP_CELL = 1;
+try {
+  const H = window.VN_HMAP;
+  if (H && H.data) {
+    const bin = atob(H.data);
+    const buf = new ArrayBuffer(bin.length);
+    const u8 = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    hmapData = new Float32Array(buf);
+    HMAP_N = H.n; HMAP_MIN = H.min; HMAP_CELL = H.cell;
+  }
+} catch (e) { hmapData = null; }
 
 /* ================= Renderer / scene / camera ================= */
 renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -234,6 +262,7 @@ function addMesh(geo, mat, x, y, z, parent) {
 }
 { // real Buddha statue at the plank end, facing back west (-X) toward the plank
   const b = new THREE.Group();
+  buddhaGroup = b;
   b.position.set(BUDDHA_POS.x, END_DISC.y, BUDDHA_POS.z);
   b.rotation.y = -Math.PI / 2;
   scene.add(b);
@@ -263,7 +292,8 @@ function lotusLamp(x, y, z) {
   bulb.position.y = 0.56; g.add(bulb);
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa050, transparent: true, opacity: 0.8, depthWrite: false }));
   glow.scale.set(1.7, 1.7, 1); glow.position.y = 0.56; g.add(glow);
-  g.position.set(x, y, z);
+  const gy = sampleGround(x, z);
+  g.position.set(x, gy !== null ? gy - 0.05 : y, z);
   scene.add(g);
 }
 for (let i = 0; i < 8; i++) {
@@ -308,7 +338,11 @@ function buildPlaceholder() {
   return bodyG;
 }
 player = new THREE.Group();
-player.add(buildPlaceholder());
+bowGroup = new THREE.Group(); bowGroup.position.set(0, 0.05, 0.18);
+rigG = new THREE.Group(); rigG.position.set(0, -0.05, -0.18);
+bowGroup.add(rigG);
+player.add(bowGroup);
+rigG.add(buildPlaceholder());
 player.position.set(0, 0, 10);
 player.rotation.y = Math.PI;
 scene.add(player);
@@ -324,10 +358,10 @@ new GLTFLoader().load('models/monk2.glb', (gltf) => {
   const pivot = new THREE.Group(); pivot.position.y = 0.45;
   const inst = new THREE.Group(); inst.add(inner); inst.position.y = -0.45;
   pivot.add(inst);
-  player.remove(bodyG);
+  rigG.remove(bodyG);
   bodyG = new THREE.Group(); bodyG.add(pivot);
   upperG = pivot;
-  player.add(bodyG);
+  rigG.add(bodyG);
   monkLoaded = true;
 }, undefined, () => { if (!monkLoaded && bodyG) bodyG.visible = true; });
 setTimeout(() => { if (!monkLoaded && bodyG) bodyG.visible = true; }, 25000);
@@ -340,19 +374,6 @@ setTimeout(() => { if (!monkLoaded && bodyG) bodyG.visible = true; }, 25000);
    The mesh surface is lumpy rock (the apron alone spans ~2.4 m of relief),
    so flat analytic discs made the avatar sink into the visual terrain —
    the sampler is now the single source of truth for terrain height. */
-const HMAP_SENTINEL = -999;
-let hmapData = null, HMAP_N = 0, HMAP_MIN = 0, HMAP_CELL = 1;
-try {
-  const H = window.VN_HMAP;
-  if (H && H.data) {
-    const bin = atob(H.data);
-    const buf = new ArrayBuffer(bin.length);
-    const u8 = new Uint8Array(buf);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    hmapData = new Float32Array(buf);
-    HMAP_N = H.n; HMAP_MIN = H.min; HMAP_CELL = H.cell;
-  }
-} catch (e) { hmapData = null; }
 function sampleGround(x, z) {
   if (!hmapData) return null;
   const gx = (x - HMAP_MIN) / HMAP_CELL - 0.5;
@@ -404,6 +425,11 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   tapPlane.constant = -(curY !== null ? curY : player.position.y);
   const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
+  if (buddhaGroup && raycaster.intersectObject(buddhaGroup, true).length > 0) {
+    faceTarget = Math.atan2(BUDDHA_POS.x - player.position.x, BUDDHA_POS.z - player.position.z);
+    startXa();
+    return;
+  }
   if (!raycaster.ray.intersectPlane(tapPlane, tapPoint)) return;
   let tx = tapPoint.x, tz = tapPoint.z;
   if (groundAt(tx, tz) === null) {
@@ -430,11 +456,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-bowChip.addEventListener('click', () => {
-  if (bowing) return;
-  faceTarget = Math.atan2(BUDDHA_POS.x - player.position.x, BUDDHA_POS.z - player.position.z);
-  bowing = true; bowT = 0;
-});
+bowChip.addEventListener('click', () => { startProstration(); });
 
 /* ================= Per-frame updates ================= */
 function movePlayer(dt) {
@@ -473,6 +495,8 @@ function movePlayer(dt) {
     else if (canStep(baseY, groundAt(player.position.x, nz))) { player.position.z = nz; }
     else if (walkTarget) walkTarget = null;
   }
+}
+function rideGround(dt) {
   // Avatar rides the sampled surface exactly (no sinking into the lumps);
   // only a big step (built geometry transitions) is smoothed with a lerp.
   const gy = groundAt(player.position.x, player.position.z);
@@ -482,18 +506,124 @@ function movePlayer(dt) {
     else player.position.y += dy * Math.min(1, 14 * dt);
   }
 }
-function updateBow(dt) {
-  if (!upperG) return;
-  if (bowing) {
-    bowT += dt;
-    const T = 1.6;
-    if (bowT >= T) { bowing = false; upperG.rotation.x = 0; }
-    else {
-      const p = bowT / T;
-      const a = p < 0.44 ? (p / 0.44) : (p < 0.56 ? 1 : 1 - (p - 0.56) / 0.44);
-      upperG.rotation.x = 0.6 * a * a * (3 - 2 * a);
+function animLocked() { return animState === 'prostrate' || animState === 'xa' || animState === 'recover'; }
+function startXa() {
+  if (animState !== 'idle' && animState !== 'walk') return;
+  animState = 'xa'; animT = 0; walkTarget = null;
+}
+function startProstration() {
+  if (animState !== 'idle' && animState !== 'walk') return;
+  faceTarget = Math.atan2(BUDDHA_POS.x - player.position.x, BUDDHA_POS.z - player.position.z);
+  animState = 'prostrate'; proPhase = 'kneel'; proT = 0; proCount = 0;
+  proPitch = 0; proScale = 1; walkTarget = null;
+  bowChip.textContent = '🙏 1/3';
+}
+function beginRecover(dur) {
+  recDur = dur; animT = 0;
+  recPitch0 = proPitch; recScale0 = proScale; recXa0 = upperG ? upperG.rotation.x : 0;
+  animState = 'recover';
+  bowChip.textContent = '🙏 Lạy';
+}
+function updateAnim(dt, t) {
+  if (!bodyG) return;
+  // Distance actually travelled this frame drives the gait cycle.
+  const dx = player.position.x - lastPos.x, dz = player.position.z - lastPos.z;
+  const dist = Math.hypot(dx, dz);
+  lastPos.copy(player.position);
+  const speed = dt > 0 ? dist / dt : 0;
+  const moving = speed > 0.05;
+  if (moving) stillT = 0; else stillT += dt;
+  const walkInput = keys.fwd || walkTarget !== null;
+  const walkEdge = walkInput && !walkInputPrev;
+  walkInputPrev = walkInput;
+
+  // Facing still turns during a bow (the old bow behaved this way too).
+  if (faceTarget !== null && !walkTarget && !keys.fwd) {
+    let diff = faceTarget - player.rotation.y;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    player.rotation.y += diff * Math.min(1, 8 * dt);
+    if (Math.abs(diff) < 0.02) faceTarget = null;
+  }
+
+  // A fresh walk order cancels a bow: stand back up, then idle.
+  if ((animState === 'prostrate' || animState === 'xa') && walkEdge) {
+    if (walkTarget) walkTarget = null;
+    beginRecover(animState === 'prostrate' ? 0.4 : 0.2);
+  }
+
+  if (animState === 'idle' && moving) animState = 'walk';
+  else if (animState === 'walk' && !moving && walkBlend <= 0.001) animState = 'idle';
+
+  // Gait: bob + roll + slight forward pitch, eased by walkBlend (~0.15 s).
+  const blendGoal = moving ? 1 : 0;
+  walkBlend += Math.max(-dt / 0.15, Math.min(dt / 0.15, blendGoal - walkBlend));
+  if (moving) walkPhase += dist * 5.2;
+  bodyG.position.y = Math.sin(walkPhase) * 0.022 * walkBlend;
+  const sway = (animState === 'idle' && stillT > 1) ? Math.sin(t * 0.9) * 0.004 : 0;
+  bodyG.rotation.z = Math.sin(walkPhase) * 0.02 * walkBlend + sway;
+  bodyG.rotation.x = (0.03 + Math.min(speed, 3) * 0.01) * walkBlend;
+
+  // Xa (greeting bow): the upper pivot dips 0.34 rad over ~1.05 s.
+  if (animState === 'xa') {
+    animT += dt;
+    if (animT >= 1.05) { if (upperG) upperG.rotation.x = 0; animState = 'idle'; }
+    else if (upperG) {
+      const a = animT < 0.35 ? smooth01(animT / 0.35) : (animT < 0.6 ? 1 : 1 - smooth01((animT - 0.6) / 0.45));
+      upperG.rotation.x = XA_PITCH * a;
     }
   }
+
+  // Prostration: kneel -> bow -> hold -> rise -> stand, three times.
+  if (animState === 'prostrate') {
+    proT += dt;
+    if (proPhase === 'kneel') {
+      proScale = 1 + (KNEEL_SQ - 1) * smooth01(proT / 0.55);
+      bowChip.textContent = '🙏 ' + (proCount + 1) + '/3';
+      if (proT >= 0.55) { proPhase = 'bow'; proT = 0; }
+    } else if (proPhase === 'bow') {
+      proPitch = BOW_PITCH * smooth01(proT / 0.95);
+      if (proT >= 0.95) { proPhase = 'hold'; proT = 0; }
+    } else if (proPhase === 'hold') {
+      if (proT >= 0.4) { proPhase = 'rise'; proT = 0; }
+    } else if (proPhase === 'rise') {
+      proPitch = BOW_PITCH * (1 - smooth01(proT / 0.95));
+      if (proT >= 0.95) { proPhase = 'stand'; proT = 0; }
+    } else if (proPhase === 'stand') {
+      proScale = KNEEL_SQ + (1 - KNEEL_SQ) * smooth01(proT / 0.5);
+      if (proT >= 0.5) {
+        proCount++;
+        if (proCount >= 3) {
+          proPitch = 0; proScale = 1; animState = 'idle';
+          bowChip.textContent = '🙏 Lạy';
+        } else { proPhase = 'kneel'; proT = 0; }
+      }
+    }
+  }
+
+  // Recover (a bow cancelled by walking): ease every pose value to neutral.
+  if (animState === 'recover') {
+    animT += dt;
+    const k = smooth01(animT / recDur);
+    proPitch = recPitch0 * (1 - k);
+    proScale = recScale0 + (1 - recScale0) * k;
+    if (upperG) upperG.rotation.x = recXa0 * (1 - k);
+    if (animT >= recDur) { proPitch = 0; proScale = 1; if (upperG) upperG.rotation.x = 0; animState = 'idle'; }
+  }
+
+  // Apply the prostration pose; idle breathing rides on the same scale.
+  if (bowGroup) bowGroup.rotation.x = proPitch;
+  let sy = proScale;
+  if (animState === 'idle' && stillT > 1) sy *= 1 + Math.sin(t * 1.4) * 0.006;
+  bodyG.scale.y = sy;
+
+  // Arriving at the Buddha, once per visit: a greeting xa.
+  const onEnd = Math.hypot(player.position.x - END_DISC.x, player.position.z - END_DISC.z) <= END_DISC.r;
+  if (onEnd && !onEndPrev && animState === 'idle') {
+    faceTarget = Math.atan2(BUDDHA_POS.x - player.position.x, BUDDHA_POS.z - player.position.z);
+    startXa();
+  }
+  onEndPrev = onEnd;
 }
 function updateChip() {
   const d = Math.hypot(player.position.x - END_DISC.x, player.position.z - END_DISC.z);
@@ -508,8 +638,9 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.elapsedTime;
-  movePlayer(dt);
-  updateBow(dt);
+  if (!animLocked()) movePlayer(dt);
+  rideGround(dt);
+  updateAnim(dt, t);
   for (const c of clouds) {
     c.position.x += c.userData.speed * dt;
     if (c.position.x > 115) c.position.x = -115;
@@ -529,6 +660,18 @@ function animate() {
     if (ld) ld.remove();
   }
 }
+/* Offline-harness hooks (no effect in normal use). */
+window.__vn = {
+  get player() { return player; }, get bodyG() { return bodyG; },
+  get upperG() { return upperG; }, get bowGroup() { return bowGroup; },
+  get state() { return animState; }, get proPhase() { return proPhase; },
+  get proPitch() { return proPitch; }, get proScale() { return proScale; },
+  get walkBlend() { return walkBlend; },
+  chip: bowChip, scene: () => scene,
+  startXa, startProstration, sampleGround, groundAt,
+  setWalk: (x, z) => { walkTarget = new THREE.Vector3(x, 0, z); },
+  keys,
+};
 animate();
 </script>
 </body>
