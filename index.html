@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="vn-ver" content="0.1.0">
+<title>Vách Núi — Khung cảnh 0.1</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; }
+  #loading { position:fixed; inset:0; background:#241708; color:#e8d9b0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; z-index:40; font-size:17px; }
+  #loading .spin { font-size:44px; animation:sp 1.6s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  #bootTrace { margin-top:10px; font-size:11px; color:#cbb27f; max-width:82vw; word-break:break-word; text-align:center; }
+  #hint { position:fixed; left:10px; bottom:10px; z-index:10; color:#f3e6c8; font-size:12.5px; line-height:1.5; text-shadow:0 1px 3px rgba(0,0,0,.85), 0 0 8px rgba(0,0,0,.6); pointer-events:none; }
+  #ver { position:fixed; right:10px; bottom:10px; z-index:10; color:#e8d9b0; opacity:.75; font-size:11.5px; text-shadow:0 1px 3px rgba(0,0,0,.85); pointer-events:none; }
+  #bowChip { position:fixed; z-index:12; transform:translate(-50%,-100%); color:#ffe9b8; font-size:16.5px; font-weight:600; cursor:pointer; user-select:none; -webkit-user-select:none; text-shadow:0 1px 4px rgba(0,0,0,.9), 0 0 10px rgba(0,0,0,.65); display:none; padding:10px 14px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
+<div id="bowChip">🙏 Lạy</div>
+<div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
+<div id="ver">Vách Núi · khung v0.1.0</div>
+
+<script>
+/* Safety net: if the 3D module cannot start, never leave the visitor on the
+   loading screen — after 25 s show a reload hint on the loading card itself. */
+setTimeout(function () {
+  var ld = document.getElementById('loading');
+  if (ld) ld.innerHTML = '<div class="spin">🪷</div><div>Đang tải lâu hơn thường lệ…<br><button onclick="location.reload()" style="margin-top:12px;padding:10px 22px;border-radius:999px;border:0;background:#c9a45c;color:#241708;font-weight:700;font-size:15px">↻ Tải lại trang</button></div>';
+}, 25000);
+</script>
+<script>
+/* Boot diagnostics: records boot stages + the last error; the loading card
+   only shows the trace when an error exists. */
+window.__boot = []; window.__bootErr = '';
+window.bootMark = function (s) { window.__boot.push(s); };
+window.addEventListener('error', function (e) {
+  window.__bootErr = 'ERR: ' + (e.message || 'unknown') + (e.filename ? ' @ ' + String(e.filename).split('/').pop() + ':' + e.lineno : '');
+}, true);
+window.addEventListener('unhandledrejection', function (e) {
+  window.__bootErr = 'REJECT: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason));
+});
+setInterval(function () {
+  var ld = document.getElementById('loading'); if (!ld) return;
+  var t = document.getElementById('bootTrace'); if (!t) return;
+  var txt = window.__bootErr ? ((window.__boot.length ? window.__boot.join(' > ') : 'module chua chay') + ' || ' + window.__bootErr) : '';
+  if (t.textContent !== txt) t.textContent = txt;
+}, 600);
+</script>
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/addons/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const bootMark = window.bootMark || function () {};
+bootMark('imports-ok');
+
+const VN_VER = '0.1.0';
+
+/* ================= World layout data (measured proportions) =================
+   Island centre (0,0), radius ~19-20 m. Apron y=0 (southern half, z > -3.5).
+   Stair discs climb north; the top terrace (disc 4) is at y=12; the plank
+   runs east from it at y=12 to the end disc where the Buddha stands. */
+const DISCS = [
+  { x: 0,  z: 2,   y: 0,  r: 3.2 },   // 0: apron centre start
+  { x: 0,  z: -4,  y: 3,  r: 3.4 },   // 1
+  { x: -1, z: -8,  y: 6,  r: 3.2 },   // 2
+  { x: 0,  z: -11, y: 9,  r: 3.6 },   // 3
+  { x: 1,  z: -13, y: 12, r: 4.5 },   // 4: top terrace
+];
+const PLANK = { x0: 3.2, x1: 10.6, z: -13, y: 12, hw: 0.35 };
+const END_DISC = { x: 11.6, z: -13, y: 12, r: 1.1 };
+const BUDDHA_POS = { x: 12.15, z: -13 };
+const APRON_R = 18.6, APRON_ZMIN = -3.5;
+
+/* ================= State (all declared before animate() runs) ================= */
+let renderer, scene, camera, controls, clock;
+let player = null;              // avatar root group
+let bodyG = null, upperG = null; // rig: upperG is the bow pivot
+let walkTarget = null;          // Vector3 or null
+let faceTarget = null;          // target rotation.y or null
+const keys = { fwd: false, left: false, right: false };
+let bowing = false, bowT = 0;
+let firstFrame = true;
+const clouds = [];
+const camTmp = new THREE.Vector3();
+const camDelta = new THREE.Vector3();
+const projV = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
+const tapPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const tapPoint = new THREE.Vector3();
+let downX = 0, downY = 0, downT = 0;
+
+const bowChip = document.getElementById('bowChip');
+
+/* ================= Renderer / scene / camera ================= */
+renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+document.getElementById('app').appendChild(renderer.domElement);
+bootMark('renderer-ok');
+
+scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xcf8a5e, 55, 230);
+camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 600);
+camera.position.set(8, 6, 22);
+
+controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.58;
+controls.minDistance = 3;
+controls.maxDistance = 70;
+controls.target.set(0, 1, 10);
+clock = new THREE.Clock();
+
+/* ================= Canvas textures (no custom shaders) ================= */
+function radialTex(size, stops) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [o, col] of stops) gr.addColorStop(o, col);
+  g.fillStyle = gr; g.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c); return t;
+}
+const glowTex = radialTex(128, [[0, 'rgba(255,255,255,1)'], [0.35, 'rgba(255,255,255,0.45)'], [1, 'rgba(255,255,255,0)']]);
+const cloudTex = radialTex(256, [[0, 'rgba(255,255,255,0.95)'], [0.45, 'rgba(255,255,255,0.55)'], [0.75, 'rgba(255,255,255,0.18)'], [1, 'rgba(255,255,255,0)']]);
+
+function skyTexture() {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 512);
+  gr.addColorStop(0.0, '#131f42');
+  gr.addColorStop(0.38, '#31457c');
+  gr.addColorStop(0.60, '#8a5a74');
+  gr.addColorStop(0.74, '#e07f3e');
+  gr.addColorStop(0.82, '#ffc478');
+  gr.addColorStop(0.88, '#8a5a48');
+  gr.addColorStop(1.0, '#241c2e');
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* ================= Sky, lights ================= */
+{
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(320, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false })
+  );
+  scene.add(dome);
+}
+const hemi = new THREE.HemisphereLight(0x8fa3cc, 0x5a4632, 0.85);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffb36b, 1.7);
+sun.position.set(-34, 16, 26);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
+sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
+sun.shadow.camera.far = 120;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x6a7fc9, 0.35);
+fill.position.set(20, 30, -30);
+scene.add(fill);
+
+/* ================= Materials ================= */
+const MAT = {
+  stone:  new THREE.MeshStandardMaterial({ color: 0x878d8c, roughness: 1 }),
+  cliff:  new THREE.MeshStandardMaterial({ color: 0x49525a, roughness: 1, flatShading: true }),
+  rock:   new THREE.MeshStandardMaterial({ color: 0x3d454e, roughness: 1, flatShading: true }),
+  discTop:new THREE.MeshStandardMaterial({ color: 0x6f7a76, roughness: 1, flatShading: true }),
+  wood:   new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.9 }),
+  woodDk: new THREE.MeshStandardMaterial({ color: 0x64482c, roughness: 0.95 }),
+  gold:   new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.35, metalness: 0.65, emissive: 0x442a00, emissiveIntensity: 0.6 }),
+  chain:  new THREE.LineBasicMaterial({ color: 0x2c2c30 }),
+  lampGlow: new THREE.MeshBasicMaterial({ color: 0xffc37a }),
+};
+
+/* ================= Island build ================= */
+function addMesh(geo, mat, x, y, z, parent) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.castShadow = true; m.receiveShadow = true;
+  (parent || scene).add(m);
+  return m;
+}
+{ // apron floor + sheer cliff body
+  const apron = addMesh(new THREE.CircleGeometry(19.8, 56), MAT.stone, 0, 0.02, 0);
+  apron.castShadow = false;
+  const cliff = addMesh(new THREE.CylinderGeometry(19.8, 16.8, 22, 56, 1), MAT.cliff, 0, -11, 0);
+  cliff.castShadow = false;
+  // jagged rim rocks around the northern edge
+  for (let i = 0; i < 9; i++) {
+    const a = Math.PI * (0.08 + 0.84 * (i / 8));
+    const rx = Math.cos(a) * 18.6, rz = -Math.sin(a) * 18.6;
+    const s = 1.6 + ((i * 37) % 10) / 6;
+    const r = addMesh(new THREE.DodecahedronGeometry(s, 0), MAT.rock, rx, -0.4, rz);
+    r.rotation.set(i * 1.3, i * 2.1, i * 0.7);
+  }
+}
+{ // northern massif: dark spires up to y ~ +24
+  const spires = [
+    [-6, -16, 22], [0, -18, 24], [6, -16.5, 21], [-11, -14, 17], [11, -14, 18],
+    [-3, -15, 19], [3.5, -17.5, 20], [-13, -10, 13], [13.5, -10.5, 14], [-8, -12.5, 15],
+    [8.5, -12, 16], [-15.5, -6, 10], [15.8, -6.5, 11], [0, -13.5, 15],
+  ];
+  for (const [sx, sz, h] of spires) {
+    const rad = 2.2 + (h % 5) * 0.35;
+    const cone = addMesh(new THREE.ConeGeometry(rad, h, 7), MAT.rock, sx, h / 2 - 0.5, sz);
+    cone.rotation.y = sx * 1.7 + sz;
+    const shoulder = addMesh(new THREE.DodecahedronGeometry(rad * 0.75, 0), MAT.rock, sx + rad * 0.5, h * 0.3, sz + 0.6);
+    shoulder.rotation.set(sx, sz * 2.0, sx * 0.5);
+  }
+}
+for (const d of DISCS) { // stair discs (cylinder tops exactly at disc y)
+  addMesh(new THREE.CylinderGeometry(d.r, d.r * 1.08, 0.6, 26), MAT.discTop, d.x, d.y - 0.3, d.z);
+}
+{ // plank + struts + chain rail + end rock point
+  const plank = addMesh(new THREE.BoxGeometry(PLANK.x1 - PLANK.x0, 0.12, 0.7), MAT.wood, (PLANK.x0 + PLANK.x1) / 2, PLANK.y - 0.06, PLANK.z);
+  plank.castShadow = true;
+  for (const px of [PLANK.x0 + 1.2, (PLANK.x0 + PLANK.x1) / 2, PLANK.x1 - 1.0]) {
+    const strut = addMesh(new THREE.BoxGeometry(0.14, 3.4, 0.14), MAT.woodDk, px, PLANK.y - 1.8, PLANK.z);
+    strut.rotation.z = 0.5;
+  }
+  const postGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.95, 6);
+  const railPts = [];
+  for (let px = PLANK.x0 + 0.3; px <= PLANK.x1 + 0.01; px += 1.45) {
+    addMesh(postGeo, MAT.woodDk, px, PLANK.y + 0.47, PLANK.z - 0.33);
+    railPts.push(new THREE.Vector3(px, PLANK.y + 0.95, PLANK.z - 0.33));
+    if (px + 1.45 <= PLANK.x1 + 0.01) railPts.push(new THREE.Vector3(px + 0.725, PLANK.y + 0.82, PLANK.z - 0.33));
+  }
+  const rail = new THREE.Line(new THREE.BufferGeometry().setFromPoints(railPts), MAT.chain);
+  scene.add(rail);
+  addMesh(new THREE.CylinderGeometry(END_DISC.r, END_DISC.r * 1.25, 0.6, 18), MAT.discTop, END_DISC.x, END_DISC.y - 0.3, END_DISC.z);
+  const lump = addMesh(new THREE.ConeGeometry(1.15, 3.6, 8), MAT.rock, END_DISC.x, END_DISC.y - 2.2, END_DISC.z);
+  lump.rotation.x = Math.PI;
+}
+{ // small gold Buddha placeholder at the plank end, facing back west (-X)
+  const b = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.42, 0.1, 14), MAT.gold); base.position.y = 0.05; b.add(base);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.30, 4, 10), MAT.gold); body.position.y = 0.42; b.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), MAT.gold); head.position.y = 0.79; b.add(head);
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), MAT.gold); top.position.y = 0.90; b.add(top);
+  b.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
+  b.position.set(BUDDHA_POS.x, END_DISC.y, BUDDHA_POS.z);
+  b.rotation.y = -Math.PI / 2;
+  scene.add(b);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffbe78, transparent: true, opacity: 0.55, depthWrite: false }));
+  halo.scale.set(2.4, 2.4, 1);
+  halo.position.set(BUDDHA_POS.x + 0.25, END_DISC.y + 0.55, BUDDHA_POS.z);
+  scene.add(halo);
+}
+
+/* ================= Lotus lamps (emissive + glow sprites; 2 real lights) ================= */
+function lotusLamp(x, y, z) {
+  const g = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, 0.5, 6), MAT.woodDk);
+  stem.position.y = 0.25; g.add(stem);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), MAT.lampGlow);
+  bulb.position.y = 0.56; g.add(bulb);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffa050, transparent: true, opacity: 0.8, depthWrite: false }));
+  glow.scale.set(1.7, 1.7, 1); glow.position.y = 0.56; g.add(glow);
+  g.position.set(x, y, z);
+  scene.add(g);
+}
+for (let i = 0; i < 8; i++) {
+  const a = Math.PI * (0.06 + 0.88 * (i / 7));
+  lotusLamp(Math.cos(a) * 17.4, 0, Math.sin(a) * 17.4 * 0.96 + 1.5);
+}
+lotusLamp(2.6, 0, 6.5); lotusLamp(-2.8, 0, -0.5);
+lotusLamp(2.2, 3, -2.6); lotusLamp(-3.4, 6, -9.4);
+lotusLamp(3.4, 9, -9.6); lotusLamp(-3.2, 12, -15.8);
+lotusLamp(9.9, 12, -14.1);
+{
+  const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
+  const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(1, 13.4, -13); scene.add(p2);
+}
+
+/* ================= Cloud sea ================= */
+for (let i = 0; i < 52; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xfff4e2, transparent: true, opacity: 0.45 + ((i * 29) % 40) / 100, depthWrite: false }));
+  const ang = (i / 52) * Math.PI * 2 + (i % 5) * 0.35;
+  const rad = 26 + ((i * 53) % 70);
+  sp.position.set(Math.cos(ang) * rad, -8 - ((i * 37) % 8), Math.sin(ang) * rad);
+  const s = 26 + ((i * 41) % 34);
+  sp.scale.set(s, s * 0.42, 1);
+  sp.userData.speed = 0.25 + ((i * 31) % 30) / 60;
+  clouds.push(sp); scene.add(sp);
+}
+bootMark('scene-ok');
+
+/* ================= Avatar (temple framing for monk2.glb) ================= */
+function buildPlaceholder() {
+  bodyG = new THREE.Group();
+  const robeMat = new THREE.MeshStandardMaterial({ color: 0x74a9d8, roughness: 0.9 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe8b98d, roughness: 0.7 });
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.35, 0.58, 14), robeMat);
+  lower.position.y = 0.29; lower.castShadow = true; bodyG.add(lower);
+  upperG = new THREE.Group(); upperG.position.y = 0.55; bodyG.add(upperG);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 0.3, 12), robeMat);
+  torso.position.y = 0.13; torso.castShadow = true; upperG.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 10), skinMat);
+  head.position.y = 0.42; head.castShadow = true; upperG.add(head);
+  bodyG.visible = false; // hidden until the model lands, or the 25 s fallback fires
+  return bodyG;
+}
+player = new THREE.Group();
+player.add(buildPlaceholder());
+player.position.set(0, 0, 10);
+player.rotation.y = Math.PI;
+scene.add(player);
+
+let monkLoaded = false;
+new GLTFLoader().load('models/monk2.glb', (gltf) => {
+  const S = 1.15 / 1.957;
+  const inner = new THREE.Group();
+  inner.scale.setScalar(S);
+  inner.position.y = 0.998 * S;
+  gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; if (o.material) { if (o.geometry && o.geometry.getAttribute('color')) o.material.vertexColors = true; o.material.roughness = 0.85; } } });
+  inner.add(gltf.scene);
+  const pivot = new THREE.Group(); pivot.position.y = 0.45;
+  const inst = new THREE.Group(); inst.add(inner); inst.position.y = -0.45;
+  pivot.add(inst);
+  player.remove(bodyG);
+  bodyG = new THREE.Group(); bodyG.add(pivot);
+  upperG = pivot;
+  player.add(bodyG);
+  monkLoaded = true;
+}, undefined, () => { if (!monkLoaded && bodyG) bodyG.visible = true; });
+setTimeout(() => { if (!monkLoaded && bodyG) bodyG.visible = true; }, 25000);
+
+/* ================= Ground model ================= */
+function groundInfo(x, z) {
+  const de = Math.hypot(x - END_DISC.x, z - END_DISC.z);
+  if (de <= END_DISC.r) return { y: END_DISC.y, zone: 'end', idx: 5 };
+  if (x >= PLANK.x0 && x <= PLANK.x1 && Math.abs(z - PLANK.z) <= PLANK.hw) return { y: PLANK.y, zone: 'plank', idx: 5 };
+  let best = null;
+  for (let i = 0; i < DISCS.length; i++) {
+    const d = DISCS[i];
+    if (Math.hypot(x - d.x, z - d.z) <= d.r && (!best || d.y > best.y)) best = { y: d.y, zone: 'disc', idx: i };
+  }
+  if (best) return best;
+  if (Math.hypot(x, z) <= APRON_R && z >= APRON_ZMIN) return { y: 0, zone: 'apron', idx: -1 };
+  return null;
+}
+function canStep(cur, nxt) {
+  if (!nxt) return false;
+  const dy = Math.abs(nxt.y - cur.y);
+  if (dy <= 0.5) return true;
+  if (cur.zone === 'disc' && nxt.zone === 'disc' && Math.abs(cur.idx - nxt.idx) <= 1) return true;
+  return false;
+}
+function nearestWalkable(px, pz) {
+  let bestP = null, bestD = 7;
+  const consider = (cx, cz) => {
+    const info = groundInfo(cx, cz);
+    if (!info) return;
+    const d = Math.hypot(cx - px, cz - pz);
+    if (d < bestD) { bestD = d; bestP = { x: cx, z: cz }; }
+  };
+  for (const d of DISCS) {
+    const dx = px - d.x, dz = pz - d.z, dist = Math.hypot(dx, dz);
+    if (dist <= d.r) consider(px, pz);
+    else consider(d.x + dx / dist * d.r * 0.92, d.z + dz / dist * d.r * 0.92);
+  }
+  consider(THREE.MathUtils.clamp(px, PLANK.x0, PLANK.x1), PLANK.z);
+  {
+    const d = Math.hypot(px - END_DISC.x, pz - END_DISC.z);
+    if (d > END_DISC.r) consider(END_DISC.x + (px - END_DISC.x) / d * END_DISC.r * 0.9, END_DISC.z + (pz - END_DISC.z) / d * END_DISC.r * 0.9);
+    else consider(px, pz);
+  }
+  {
+    const d = Math.hypot(px, pz);
+    let ax = px, az = Math.max(pz, APRON_ZMIN + 0.2);
+    if (d > APRON_R) { ax = px / d * APRON_R; az = Math.max(pz / d * APRON_R, APRON_ZMIN + 0.2); }
+    consider(ax, az);
+  }
+  return bestP;
+}
+
+/* ================= Input: tap-to-walk + arrow keys ================= */
+renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; downT = performance.now(); });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6 || performance.now() - downT > 450) return;
+  const cur = groundInfo(player.position.x, player.position.z);
+  tapPlane.constant = -(cur ? cur.y : player.position.y);
+  const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  if (!raycaster.ray.intersectPlane(tapPlane, tapPoint)) return;
+  let tx = tapPoint.x, tz = tapPoint.z;
+  if (!groundInfo(tx, tz)) {
+    const snap = nearestWalkable(tx, tz);
+    if (!snap) return;
+    tx = snap.x; tz = snap.z;
+  }
+  walkTarget = new THREE.Vector3(tx, 0, tz);
+});
+window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  if (e.key === 'ArrowUp') { keys.fwd = true; walkTarget = null; e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') keys.left = true;
+  else if (e.key === 'ArrowRight') keys.right = true;
+  else if (e.key === 'ArrowDown') { faceTarget = player.rotation.y + Math.PI; e.preventDefault(); }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowUp') keys.fwd = false;
+  else if (e.key === 'ArrowLeft') keys.left = false;
+  else if (e.key === 'ArrowRight') keys.right = false;
+});
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+bowChip.addEventListener('click', () => {
+  if (bowing) return;
+  faceTarget = Math.atan2(BUDDHA_POS.x - player.position.x, BUDDHA_POS.z - player.position.z);
+  bowing = true; bowT = 0;
+});
+
+/* ================= Per-frame updates ================= */
+function movePlayer(dt) {
+  if (keys.left) player.rotation.y += 2.2 * dt;
+  if (keys.right) player.rotation.y -= 2.2 * dt;
+  let mx = 0, mz = 0;
+  if (keys.fwd) {
+    mx = Math.sin(player.rotation.y); mz = Math.cos(player.rotation.y);
+  } else if (walkTarget) {
+    const dx = walkTarget.x - player.position.x, dz = walkTarget.z - player.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.08) { walkTarget = null; }
+    else {
+      mx = dx / dist; mz = dz / dist;
+      const want = Math.atan2(dx, dz);
+      let diff = want - player.rotation.y;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      player.rotation.y += diff * Math.min(1, 10 * dt);
+    }
+  }
+  if (faceTarget !== null && !walkTarget && !keys.fwd) {
+    let diff = faceTarget - player.rotation.y;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    player.rotation.y += diff * Math.min(1, 8 * dt);
+    if (Math.abs(diff) < 0.02) faceTarget = null;
+  }
+  if (mx !== 0 || mz !== 0) {
+    const step = Math.min(2.6 * dt, walkTarget ? Math.hypot(walkTarget.x - player.position.x, walkTarget.z - player.position.z) : 2.6 * dt);
+    const cur = groundInfo(player.position.x, player.position.z) || { y: player.position.y, zone: 'apron', idx: -1 };
+    const nx = player.position.x + mx * step, nz = player.position.z + mz * step;
+    if (canStep(cur, groundInfo(nx, nz))) { player.position.x = nx; player.position.z = nz; }
+    else if (canStep(cur, groundInfo(nx, player.position.z))) { player.position.x = nx; }
+    else if (canStep(cur, groundInfo(player.position.x, nz))) { player.position.z = nz; }
+    else if (walkTarget) walkTarget = null;
+  }
+  const gi = groundInfo(player.position.x, player.position.z);
+  if (gi) player.position.y += (gi.y - player.position.y) * Math.min(1, 14 * dt);
+}
+function updateBow(dt) {
+  if (!upperG) return;
+  if (bowing) {
+    bowT += dt;
+    const T = 1.6;
+    if (bowT >= T) { bowing = false; upperG.rotation.x = 0; }
+    else {
+      const p = bowT / T;
+      const a = p < 0.44 ? (p / 0.44) : (p < 0.56 ? 1 : 1 - (p - 0.56) / 0.44);
+      upperG.rotation.x = 0.6 * a * a * (3 - 2 * a);
+    }
+  }
+}
+function updateChip() {
+  const d = Math.hypot(player.position.x - END_DISC.x, player.position.z - END_DISC.z);
+  if (d > 1.9) { bowChip.style.display = 'none'; return; }
+  projV.set(END_DISC.x, END_DISC.y + 1.75, END_DISC.z).project(camera);
+  if (projV.z > 1) { bowChip.style.display = 'none'; return; }
+  bowChip.style.display = 'block';
+  bowChip.style.left = ((projV.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+  bowChip.style.top = ((-projV.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+}
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
+  movePlayer(dt);
+  updateBow(dt);
+  for (const c of clouds) {
+    c.position.x += c.userData.speed * dt;
+    if (c.position.x > 115) c.position.x = -115;
+  }
+  // camera target follows the avatar; camera rides along by the same delta
+  camTmp.set(player.position.x, player.position.y + 1.0, player.position.z);
+  camDelta.copy(camTmp).sub(controls.target).multiplyScalar(Math.min(1, 5 * dt));
+  controls.target.add(camDelta);
+  camera.position.add(camDelta);
+  controls.update();
+  updateChip();
+  renderer.render(scene, camera);
+  if (firstFrame) {
+    firstFrame = false;
+    bootMark('frame-1');
+    const ld = document.getElementById('loading');
+    if (ld) ld.remove();
+  }
+}
+animate();
+</script>
+</body>
+</html>
