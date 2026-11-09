@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.1.0">
+<meta name="vn-ver" content="0.1.1">
 <title>Vách Núi — Khung cảnh 0.1</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -65,7 +65,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.1.0';
+const VN_VER = '0.1.1';
 
 /* ================= World layout data (measured proportions) =================
    Island centre (0,0), radius ~19-20 m. Apron y=0 (southern half, z > -3.5).
@@ -115,7 +115,7 @@ document.getElementById('app').appendChild(renderer.domElement);
 bootMark('renderer-ok');
 
 scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcf8a5e, 55, 230);
+scene.fog = new THREE.Fog(0xdfe8f2, 60, 240);
 camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 600);
 camera.position.set(8, 6, 22);
 
@@ -144,13 +144,13 @@ function skyTexture() {
   const c = document.createElement('canvas'); c.width = 4; c.height = 512;
   const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 0, 512);
-  gr.addColorStop(0.0, '#131f42');
-  gr.addColorStop(0.38, '#31457c');
-  gr.addColorStop(0.60, '#8a5a74');
-  gr.addColorStop(0.74, '#e07f3e');
-  gr.addColorStop(0.82, '#ffc478');
-  gr.addColorStop(0.88, '#8a5a48');
-  gr.addColorStop(1.0, '#241c2e');
+  gr.addColorStop(0.0, '#5f96d6');
+  gr.addColorStop(0.38, '#8fb8e8');
+  gr.addColorStop(0.60, '#c3d9f0');
+  gr.addColorStop(0.74, '#eef0e6');
+  gr.addColorStop(0.82, '#f7ead0');
+  gr.addColorStop(0.88, '#d9c9a8');
+  gr.addColorStop(1.0, '#b8a888');
   g.fillStyle = gr; g.fillRect(0, 0, 4, 512);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -165,26 +165,26 @@ function skyTexture() {
   );
   scene.add(dome);
 }
-const hemi = new THREE.HemisphereLight(0x8fa3cc, 0x5a4632, 0.85);
+const hemi = new THREE.HemisphereLight(0xcfe0f4, 0x8a7a5f, 1.25);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffb36b, 1.7);
-sun.position.set(-34, 16, 26);
+const sun = new THREE.DirectionalLight(0xfff1da, 2.3);
+sun.position.set(-26, 40, 22);
 sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
 sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
 sun.shadow.camera.far = 120;
 scene.add(sun);
-const fill = new THREE.DirectionalLight(0x6a7fc9, 0.35);
+const fill = new THREE.DirectionalLight(0xaac4e8, 0.55);
 fill.position.set(20, 30, -30);
 scene.add(fill);
 
 /* ================= Materials ================= */
 const MAT = {
-  stone:  new THREE.MeshStandardMaterial({ color: 0x878d8c, roughness: 1 }),
-  cliff:  new THREE.MeshStandardMaterial({ color: 0x49525a, roughness: 1, flatShading: true }),
-  rock:   new THREE.MeshStandardMaterial({ color: 0x3d454e, roughness: 1, flatShading: true }),
-  discTop:new THREE.MeshStandardMaterial({ color: 0x6f7a76, roughness: 1, flatShading: true }),
+  stone:  new THREE.MeshStandardMaterial({ color: 0x9aa39e, roughness: 1 }),
+  cliff:  new THREE.MeshStandardMaterial({ color: 0x707a84, roughness: 1, flatShading: true }),
+  rock:   new THREE.MeshStandardMaterial({ color: 0x5f6a74, roughness: 1, flatShading: true }),
+  discTop:new THREE.MeshStandardMaterial({ color: 0x8b968f, roughness: 1, flatShading: true }),
   wood:   new THREE.MeshStandardMaterial({ color: 0x8a6a48, roughness: 0.9 }),
   woodDk: new THREE.MeshStandardMaterial({ color: 0x64482c, roughness: 0.95 }),
   gold:   new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.35, metalness: 0.65, emissive: 0x442a00, emissiveIntensity: 0.6 }),
