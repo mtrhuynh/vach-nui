@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.7">
-<title>Vách Núi — Cảnh vách núi 0.2.7</title>
+<meta name="vn-ver" content="0.2.8">
+<title>Vách Núi — Cảnh vách núi 0.2.8</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.7</div>
+<div id="ver">Vách Núi · v0.2.8</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.7';
+const VN_VER = '0.2.8';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -81,15 +81,22 @@ const VN_VER = '0.2.7';
    (8.03 m long, 2.96 m wide) around centre (6.32, -6); samples are the
    measured deck-top heights along the model (t = 0 west end, 1 east).
    The deck ends differ (0.090 west vs 0.105 east local), so the group
-   is pitched by tilt = atan(-(0.105 - 0.090) / 0.98) = -0.015305 rad
-   and baseY = 12.1006, which puts BOTH deck ends at world y = 12.90,
-   flush with the end disc; the sagging middle dips to ~12.35. */
+   is pitched by tilt = atan(-(0.105 - 0.090) / 0.98) = -0.015305 rad.
+   baseY = 12.4806 puts BOTH deck ends at world y = 13.28 and the
+   sagging middle at ~12.73. (v0.2.8: raised +0.38 from the original
+   12.1006 — a rock rib under the span at x 5.1-6.9 reads up to 12.74
+   on the heightmap and pierced the old deck line; at 12.4806 the
+   deck clears the rib by >= 0.05 everywhere along the strip. The
+   deck now steps DOWN 0.38 onto the end disc (12.90) at the east
+   seam and 0.15 down to the launch shelf (13.13) at the west — both
+   inside the 0.65 rise gate.) */
 const BRIDGE = {
-  cx: 6.32, cz: -6.0, scale: 8.2, baseY: 12.1006, tilt: -0.015305,
+  cx: 6.32, cz: -6.0, scale: 8.2, baseY: 12.4806, tilt: -0.015305,
   x0: 2.30, x1: 10.33,   // mesh span: cx -+ 0.49 * scale = 2.302..10.338
   groundX1: 10.40,      // ground strip runs on to the END_DISC edge
-                        // (11.5 - 1.1); deckYAt clamps there at 12.900,
-                        // exactly the disc height — no dead seam
+                        // (11.5 - 1.1); deckYAt clamps there at 13.280,
+                        // then the END_DISC check takes over at 12.90 —
+                        // a deliberate 0.38 step down, inside the gate
   hw: 1.05,             // walkable half-width of the deck strip
   samples: [
     [0.03, 0.090], [0.10, 0.104], [0.16, 0.106], [0.23, 0.099], [0.30, 0.072],
@@ -99,6 +106,17 @@ const BRIDGE = {
 };
 const END_DISC = { x: 11.5, z: -6.0, y: 12.9, r: 1.1 };
 const BUDDHA_POS = { x: 12.05, z: -6.0 };
+/* Mouth filler disc (v0.2.8, ground-only, no visual): a groove crosses
+   the straight route at the bridge mouth — terrain at x~2.25, z=-6
+   dips to 11.86 while the launch shelf reads ~13.13 and the (raised)
+   deck starts at 13.28, a >1.0 cliff in ground terms that stalled a
+   straight tap toward the bridge. This flat disc spans the groove so
+   the centreline reads shelf ~13.13 -> filler 13.20 -> deck 13.28.
+   Rim audit vs the heightmap (12-point ring): the worst terrain under
+   the rim is 11.635 (drop 1.565 from the disc top, inside the 1.6
+   allowance) — the disc only bridges the shallow groove, it never
+   spans open air over the deep drop. */
+const MOUTH_DISC = { x: 1.95, z: -6.0, y: 13.20, r: 0.85 };
 /* Deck-top height (world y) of the bridge at a world x: lerp the
    measured profile, then apply the same scale + tilt + baseY as the
    mesh group transform. */
@@ -536,6 +554,7 @@ function sampleGround(x, z) {
 function groundAt(x, z) {
   if (Math.hypot(x - END_DISC.x, z - END_DISC.z) <= END_DISC.r) return END_DISC.y;
   if (x >= BRIDGE.x0 && x <= BRIDGE.groundX1 && Math.abs(z - BRIDGE.cz) <= BRIDGE.hw) return deckYAt(x);
+  if (Math.hypot(x - MOUTH_DISC.x, z - MOUTH_DISC.z) <= MOUTH_DISC.r) return MOUTH_DISC.y;
   return sampleGround(x, z);
 }
 /* Rise gate: refuse a move whose ground rise exceeds the gate (axis-slide
@@ -888,7 +907,7 @@ window.__vn = {
   chip: bowChip, scene: () => scene,
   lamps: () => lampGroups, lampGlows: () => lampGlows,
   startXa, startBow, sampleGround, groundAt, deckYAt,
-  bridge: () => bridgeGroup, bridgeData: () => BRIDGE,
+  bridge: () => bridgeGroup, bridgeData: () => BRIDGE, mouthDisc: () => MOUTH_DISC,
   setWalk: (x, z) => { walkTarget = new THREE.Vector3(x, 0, z); },
   keys,
   camera: () => camera, controls: () => controls,
