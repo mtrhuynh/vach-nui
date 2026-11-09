@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.0">
-<title>Vách Núi — Cảnh vách núi 0.2</title>
+<meta name="vn-ver" content="0.2.1">
+<title>Vách Núi — Cảnh vách núi 0.2.1</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.0</div>
+<div id="ver">Vách Núi · v0.2.1</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -57,6 +57,7 @@ setInterval(function () {
   "three/addons/": "./vendor/addons/"
 } }
 </script>
+<script src="heightmap.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -65,28 +66,23 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.0';
+const VN_VER = '0.2.1';
 
-/* ================= World layout data (measured on the real model) =================
-   The island is models/mountain.glb scaled x40, apron band (model y 0.203)
-   at world y=0, bounds centre already at (0,0). Disc chain = the mesh's own
-   up-facing floor bands (model y -> world y = (band - 0.203) * 40), radii
-   trimmed from each band's dense core so consecutive discs overlap and
-   non-consecutive ones stay out of each other's way. The plank launches
-   EAST from the highest terrace (band 0.526); the model's own shoulder
-   runs at ~12.6 under its first metres, then the ground falls away. */
-const DISCS = [
-  { x: 1.5,  z: 7.0,  y: 0,    r: 3.2 },   // 0: apron bridge disc (foot of the climb)
-  { x: 0.7,  z: 4.0,  y: 2.7,  r: 4.5 },   // 1: first step shelf (band y 0.271)
-  { x: 0.5,  z: 0.8,  y: 5.4,  r: 5.0 },   // 2: terrace 1 (band y 0.338)
-  { x: -0.4, z: 0.2,  y: 8.5,  r: 4.2 },   // 3: terrace 2 (band y 0.415)
-  { x: 1.5,  z: -2.7, y: 10.7, r: 4.2 },   // 4: high shelf (band y 0.471)
-  { x: -0.6, z: -6.0, y: 12.9, r: 4.6 },   // 5: launch terrace (band y 0.526)
-];
-const PLANK = { x0: 3.5, x1: 10.5, z: -6.0, y: 12.9, hw: 0.35 };
+/* ================= World layout data (built geometry) =================
+   The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
+   model y 0.203, sits near world y=0). Terrain height/walkability comes
+   from heightmap.js — a ray-cast bake of the real mesh (see Ground model).
+   Only the built additions keep analytic ground: the plank and its end
+   disc. The plank launches EAST from the highest terrace (mesh band
+   0.526, surface ~13.1-13.4 at z=-6); its west end is anchored at x=1.5,
+   where the terrace rock still stands at 12.45-13.05 across the plank's
+   mouth band, so stepping onto the 12.9 plank costs at most 0.45 m of
+   rise. East of x~1.75 the mesh shoulder dips to ~11.6 — the old x=3.5
+   start floated 1.2 m above the last walkable rock there, and no rise
+   gate could ever step onto it. */
+const PLANK = { x0: 1.5, x1: 10.5, z: -6.0, y: 12.9, hw: 0.35 };
 const END_DISC = { x: 11.5, z: -6.0, y: 12.9, r: 1.1 };
 const BUDDHA_POS = { x: 12.05, z: -6.0 };
-const APRON_R = 19.0, APRON_ZMIN = -4.0;
 
 /* ================= State (all declared before animate() runs) ================= */
 let renderer, scene, camera, controls, clock;
@@ -330,66 +326,81 @@ new GLTFLoader().load('models/monk2.glb', (gltf) => {
 }, undefined, () => { if (!monkLoaded && bodyG) bodyG.visible = true; });
 setTimeout(() => { if (!monkLoaded && bodyG) bodyG.visible = true; }, 25000);
 
-/* ================= Ground model ================= */
-function groundInfo(x, z) {
-  const de = Math.hypot(x - END_DISC.x, z - END_DISC.z);
-  if (de <= END_DISC.r) return { y: END_DISC.y, zone: 'end', idx: 5 };
-  if (x >= PLANK.x0 && x <= PLANK.x1 && Math.abs(z - PLANK.z) <= PLANK.hw) return { y: PLANK.y, zone: 'plank', idx: 5 };
-  let best = null;
-  for (let i = 0; i < DISCS.length; i++) {
-    const d = DISCS[i];
-    if (Math.hypot(x - d.x, z - d.z) <= d.r && (!best || d.y > best.y)) best = { y: d.y, zone: 'disc', idx: i };
+/* ================= Ground model: baked heightmap of the real mesh ======
+   heightmap.js (loaded before this module) carries window.VN_HMAP: a
+   164x164 grid over x,z in [-20.5, 20.5] at 0.25 m cells, baked offline by
+   casting rays down onto models/mountain.glb in world transform (scale
+   x40, y -8.12) and keeping the highest hit per cell; -999 = no surface.
+   The mesh surface is lumpy rock (the apron alone spans ~2.4 m of relief),
+   so flat analytic discs made the avatar sink into the visual terrain —
+   the sampler is now the single source of truth for terrain height. */
+const HMAP_SENTINEL = -999;
+let hmapData = null, HMAP_N = 0, HMAP_MIN = 0, HMAP_CELL = 1;
+try {
+  const H = window.VN_HMAP;
+  if (H && H.data) {
+    const bin = atob(H.data);
+    const buf = new ArrayBuffer(bin.length);
+    const u8 = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    hmapData = new Float32Array(buf);
+    HMAP_N = H.n; HMAP_MIN = H.min; HMAP_CELL = H.cell;
   }
-  if (best) return best;
-  if (Math.hypot(x, z) <= APRON_R && z >= APRON_ZMIN) return { y: 0, zone: 'apron', idx: -1 };
-  return null;
+} catch (e) { hmapData = null; }
+function sampleGround(x, z) {
+  if (!hmapData) return null;
+  const gx = (x - HMAP_MIN) / HMAP_CELL - 0.5;
+  const gz = (z - HMAP_MIN) / HMAP_CELL - 0.5;
+  if (gx < 0 || gz < 0 || gx > HMAP_N - 1 || gz > HMAP_N - 1) return null;
+  const i0 = Math.floor(gx), j0 = Math.floor(gz);
+  const i1 = Math.min(i0 + 1, HMAP_N - 1), j1 = Math.min(j0 + 1, HMAP_N - 1);
+  const fx = gx - i0, fz = gz - j0;
+  const a = hmapData[j0 * HMAP_N + i0], b = hmapData[j0 * HMAP_N + i1];
+  const c = hmapData[j1 * HMAP_N + i0], d = hmapData[j1 * HMAP_N + i1];
+  if (a === HMAP_SENTINEL || b === HMAP_SENTINEL || c === HMAP_SENTINEL || d === HMAP_SENTINEL) return null;
+  return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
 }
-function canStep(cur, nxt) {
-  if (!nxt) return false;
-  const dy = Math.abs(nxt.y - cur.y);
-  if (dy <= 0.5) return true;
-  if (cur.zone === 'disc' && nxt.zone === 'disc' && Math.abs(cur.idx - nxt.idx) <= 1) return true;
-  return false;
+/* Ground height at (x,z): built geometry wins over the terrain sampler. */
+function groundAt(x, z) {
+  if (Math.hypot(x - END_DISC.x, z - END_DISC.z) <= END_DISC.r) return END_DISC.y;
+  if (x >= PLANK.x0 && x <= PLANK.x1 && Math.abs(z - PLANK.z) <= PLANK.hw) return PLANK.y;
+  return sampleGround(x, z);
+}
+/* Rise gate: refuse a move whose ground rise exceeds the gate (axis-slide
+   fallback lives in movePlayer). This is what stops cliff-climbing: the
+   mesh's real ramps rise gradually, its walls jump metres per step.
+   Gate is 0.65, not 0.5: the first rock step of the climb (apron shelf
+   ~0.87 -> plateau ~4.45 at z~7.3, on the spawn's straight line north)
+   needs 0.61 per 60 fps step head-on. The terrace-2 riser at z~0.5 needs
+   0.66 head-on, so it stays gated on the meridian and is crossed
+   obliquely via the ramp corridor, as the tap-walk route does. */
+const RISE_GATE = 0.65;
+function canStep(curY, nxtY) {
+  return nxtY !== null && Math.abs(nxtY - curY) <= RISE_GATE;
 }
 function nearestWalkable(px, pz) {
-  let bestP = null, bestD = 7;
-  const consider = (cx, cz) => {
-    const info = groundInfo(cx, cz);
-    if (!info) return;
-    const d = Math.hypot(cx - px, cz - pz);
-    if (d < bestD) { bestD = d; bestP = { x: cx, z: cz }; }
-  };
-  for (const d of DISCS) {
-    const dx = px - d.x, dz = pz - d.z, dist = Math.hypot(dx, dz);
-    if (dist <= d.r) consider(px, pz);
-    else consider(d.x + dx / dist * d.r * 0.92, d.z + dz / dist * d.r * 0.92);
+  if (groundAt(px, pz) !== null) return { x: px, z: pz };
+  for (let r = 0.4; r <= 7.001; r += 0.4) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const cx = px + Math.cos(a) * r, cz = pz + Math.sin(a) * r;
+      if (groundAt(cx, cz) !== null) return { x: cx, z: cz };
+    }
   }
-  consider(THREE.MathUtils.clamp(px, PLANK.x0, PLANK.x1), PLANK.z);
-  {
-    const d = Math.hypot(px - END_DISC.x, pz - END_DISC.z);
-    if (d > END_DISC.r) consider(END_DISC.x + (px - END_DISC.x) / d * END_DISC.r * 0.9, END_DISC.z + (pz - END_DISC.z) / d * END_DISC.r * 0.9);
-    else consider(px, pz);
-  }
-  {
-    const d = Math.hypot(px, pz);
-    let ax = px, az = Math.max(pz, APRON_ZMIN + 0.2);
-    if (d > APRON_R) { ax = px / d * APRON_R; az = Math.max(pz / d * APRON_R, APRON_ZMIN + 0.2); }
-    consider(ax, az);
-  }
-  return bestP;
+  return null;
 }
 
 /* ================= Input: tap-to-walk + arrow keys ================= */
 renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; downT = performance.now(); });
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6 || performance.now() - downT > 450) return;
-  const cur = groundInfo(player.position.x, player.position.z);
-  tapPlane.constant = -(cur ? cur.y : player.position.y);
+  const curY = groundAt(player.position.x, player.position.z);
+  tapPlane.constant = -(curY !== null ? curY : player.position.y);
   const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
   if (!raycaster.ray.intersectPlane(tapPlane, tapPoint)) return;
   let tx = tapPoint.x, tz = tapPoint.z;
-  if (!groundInfo(tx, tz)) {
+  if (groundAt(tx, tz) === null) {
     const snap = nearestWalkable(tx, tz);
     if (!snap) return;
     tx = snap.x; tz = snap.z;
@@ -448,15 +459,22 @@ function movePlayer(dt) {
   }
   if (mx !== 0 || mz !== 0) {
     const step = Math.min(2.6 * dt, walkTarget ? Math.hypot(walkTarget.x - player.position.x, walkTarget.z - player.position.z) : 2.6 * dt);
-    const cur = groundInfo(player.position.x, player.position.z) || { y: player.position.y, zone: 'apron', idx: -1 };
+    const curY = groundAt(player.position.x, player.position.z);
+    const baseY = curY !== null ? curY : player.position.y;
     const nx = player.position.x + mx * step, nz = player.position.z + mz * step;
-    if (canStep(cur, groundInfo(nx, nz))) { player.position.x = nx; player.position.z = nz; }
-    else if (canStep(cur, groundInfo(nx, player.position.z))) { player.position.x = nx; }
-    else if (canStep(cur, groundInfo(player.position.x, nz))) { player.position.z = nz; }
+    if (canStep(baseY, groundAt(nx, nz))) { player.position.x = nx; player.position.z = nz; }
+    else if (canStep(baseY, groundAt(nx, player.position.z))) { player.position.x = nx; }
+    else if (canStep(baseY, groundAt(player.position.x, nz))) { player.position.z = nz; }
     else if (walkTarget) walkTarget = null;
   }
-  const gi = groundInfo(player.position.x, player.position.z);
-  if (gi) player.position.y += (gi.y - player.position.y) * Math.min(1, 14 * dt);
+  // Avatar rides the sampled surface exactly (no sinking into the lumps);
+  // only a big step (built geometry transitions) is smoothed with a lerp.
+  const gy = groundAt(player.position.x, player.position.z);
+  if (gy !== null) {
+    const dy = gy - player.position.y;
+    if (Math.abs(dy) <= 0.45) player.position.y = gy;
+    else player.position.y += dy * Math.min(1, 14 * dt);
+  }
 }
 function updateBow(dt) {
   if (!upperG) return;
