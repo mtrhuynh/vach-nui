@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.25">
+<meta name="vn-ver" content="0.2.26">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d1526">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Vách Núi — Cảnh vách núi 0.2.25</title>
+<title>Vách Núi — Cảnh vách núi 0.2.26</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -69,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.25';
+const VN_VER = '0.2.26';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -97,15 +97,20 @@ const VN_VER = '0.2.25';
    deck still clears the rib everywhere along the strip, min margin
    +0.053 at x=6.2. The deck steps DOWN ~0.37 onto the end disc
    (12.90) at the east seam and 0.15 down to the launch shelf (13.13)
-   at the west — both inside the 0.65 rise gate.) */
+   at the west — both inside the 0.65 rise gate. v0.2.26: the mini
+   island was RAISED +0.38 to meet the deck (Anita: the island read
+   as a separate lower rock), so the end disc now sits at 13.28 =
+   the deck ends and the east-seam step is gone (the walked step at
+   the ground-strip switch, x=10.40, is +0.010).) */
 const BRIDGE = {
   cx: 6.32, cz: -6.0, scaleX: 9.676, scaleY: 8.2, baseY: 12.4806, tilt: -0.012971,
   x0: 1.58, x1: 11.06,   // mesh span: cx -+ 0.49 * scaleX = 1.579..11.061
   groundX1: 10.40,      // ground strip still ends at the END_DISC edge
                         // (11.5 - 1.1) although the stretched mesh
                         // overshoots to 11.06 and lands on the Buddha
-                        // rock; the END_DISC check takes over at 12.90 —
-                        // a deliberate ~0.37 step down, inside the gate
+                        // rock; the END_DISC check takes over at 13.28
+                        // (v0.2.26: island raised flush with the deck;
+                        // before, a deliberate ~0.37 step down)
   hw: 1.05,             // walkable half-width of the deck strip
   samples: [
     [0.03, 0.090], [0.10, 0.104], [0.16, 0.106], [0.23, 0.099], [0.30, 0.072],
@@ -113,7 +118,11 @@ const BRIDGE = {
     [0.70, 0.055], [0.77, 0.076], [0.84, 0.088], [0.90, 0.101], [0.97, 0.105],
   ],
 };
-const END_DISC = { x: 11.5, z: -6.0, y: 12.9, r: 1.1 };
+/* v0.2.26: y 12.90 -> 13.28 — the disc is the mini island's landing
+   apron, and the island rose +0.38 with it (BUDDHA_ROCK_POSE.y), so
+   the pilgrim steps off the deck (ends at 13.28) onto the island
+   FLUSH instead of 0.37 down. */
+const END_DISC = { x: 11.5, z: -6.0, y: 13.28, r: 1.1 };
 /* Buddha point layout (v0.2.11, Anita): statue x1.5 at the back-RIGHT
    corner, the one candle cluster shrunk at the back-LEFT. Her corner
    (~(12.10, -6.75)) is OFF the mini island: measured on the real
@@ -122,26 +131,49 @@ const END_DISC = { x: 11.5, z: -6.0, y: 12.9, r: 1.1 };
    the void, footprint height range > 1.2 m everywhere in that zone).
    The statue therefore sits at the gentlest fully-supported spot on
    the same (back, -z) side: base centre on the flat apron band,
-   rendered surface 12.952, viewer-side float <= 0.08, the peak rising
+   rendered surface 13.332 (12.952 + the v0.2.26 island lift +0.38),
+   viewer-side float <= 0.08, the peak rising
    behind its back rim like a niche. Full evidence: vn-harness5/run9. */
 const BUDDHA_POS = { x: 11.85, z: -6.10 };
-/* Bronze incense burner (v0.2.24): the temple's burner.glb seated on the
-   island apron SW of the statue. In the raw model the tai-chi relief
-   faces +Z (proven by 4-side renders, ~/workspace/burner-model), so
-   rotation.y = -PI/2 turns the relief WEST toward the arriving pilgrim
-   and runs the lion handles north-south across the approach — the
-   temple's sideways-handles rule. Scale 0.58 -> 0.58 m tall beside the
-   1.5 m statue (the on-axis lane and the north side have no mesh flat
-   big enough: full scans in vn-harness5/search_burner*.py). Seat
-   audited on the real mesh like the candle trays
-   (vn-harness5/search_burner7.py): disc r 0.187 (feet ring 0.157 +
-   0.03) at 0.005 m steps — 0 holes, maxRock 12.950 vs baseY 12.951
-   (clearance +0.001); feet rock 12.901..12.945, worst float 0.050. */
-const BURNER_POS = { x: 11.42, z: -5.22, y: 12.951 };
+/* Bronze incense burner (v0.2.24; MOVED v0.2.26): the temple's
+   burner.glb. In the raw model the tai-chi relief faces +Z (proven
+   by 4-side renders, ~/workspace/burner-model), so rotation.y =
+   -PI/2 turns the relief WEST toward the arriving pilgrim and runs
+   the lion handles north-south across the approach — the temple's
+   sideways-handles rule. Scale 0.58 -> 0.58 m tall beside the
+   1.5 m statue.
+   v0.2.24 seat: the island apron SW of the statue (11.42,-5.22) —
+   Anita's night side view showed it HOVERING there (worst foot
+   0.050 above the rock). v0.2.26 (Anita's arrow on her capture):
+   the burner moves DOWN to the island's flat FRONT LEDGE — the low
+   shelf on the west rim below the statue terrace, beside the mini
+   lotus bowl baked into the rock at (11.11,-4.67). Seat
+   (11.04,-4.905): 0.25 m SW of the bowl, 1.10 m clear of the
+   pilgrimage lane (z=-6 line) and the bow spot, clear of the
+   statue blocker and the Buddha candle tray.
+   The ledge is a smooth rock dome (~0.025 of relief under any
+   0.37 m disc — no placement makes a rigid base plane touch
+   everywhere), so the seat is FLUSH by construction: baseY 13.196
+   sits within 2 mm of the highest foot-pad rock (13.198 — a hair
+   of sink beats any hover). Proof on the real mesh (vn-harness5/
+   audit_burner_final.py): the column test — the burner's lowest
+   surface vs the rock top on a 0.004 grid over the whole
+   footprint — never goes below +0.0029: ZERO rock intersection.
+   Foot contact per pad (max rock within each claw's pad): floats
+   -0.002..+0.021 (worst pad +0.021); the v0.2.24 point-sample
+   convention reads 0.023 at the claw centres — the dome's last
+   word, and 2.2x better than the 0.050 Anita flagged. The disc
+   scan's max rock (13.270) is a lotus petal tip at r 0.183,
+   OUTSIDE the burner's low silhouette (r 0.174): it stands beside
+   the belly, never under it (the column test covers it too). */
+const BURNER_POS = { x: 11.04, z: -4.905, y: 13.196 };
 const BURNER_H = 0.58;
 /* Miniature-island pose (set on the buddhaRock group in the build
-   section; kept here as the single source for miniSurfaceY). */
-const BUDDHA_ROCK_POSE = { x: 12.175, y: 12.271, z: -5.25, rotY: -Math.PI / 2 };
+   section; kept here as the single source for miniSurfaceY).
+   v0.2.26: y 12.271 -> 12.651 (+0.38, Anita) — the island's landing
+   apron now meets the bridge deck ends (13.28) instead of sitting
+   0.37 below them; END_DISC.y rose by the same +0.38. */
+const BUDDHA_ROCK_POSE = { x: 12.175, y: 12.651, z: -5.25, rotY: -Math.PI / 2 };
 /* Rendered surface height of the miniature island at world (x, z) —
    the same identity the offline harness verifies through the group's
    world matrix: island coords = rock-local x (40/3) (the mini runs
@@ -392,7 +424,7 @@ scene.add(fill);
    is BACKLIT and its camera-facing side falls dark — on her TikTok
    live nobody could tell what the shrine is. One warm candlelight
    PointLight sits just WEST of the statue, beside/above its candle
-   cluster (11.95, trayY 13.62, -4.90), lighting the face the
+   cluster (11.95, trayY 14.00, -4.90), lighting the face the
    pilgrims see. applySky drives it with the same `night` channel as
    the stars: exactly 0 all day (the noon look is untouched), full
    at full night, a partial warm glow at dusk. distance 7 keeps the
@@ -400,7 +432,7 @@ scene.add(fill);
    castShadow stays off — a point shadow is a cube render. */
 const SHRINE_NIGHT_I = 9;   // candela at night = 1; tuned on captures
 const shrineLight = new THREE.PointLight(0xffb46b, 0, 7, 2);
-shrineLight.position.set(11.2, 14.35, -5.15);
+shrineLight.position.set(11.2, 14.73, -5.15);   // v0.2.26: y +0.38 with the island lift (was 14.35)
 scene.add(shrineLight);
 
 /* v0.2.18 — moonlight from the moon: the sun's DAY position, its
@@ -815,7 +847,8 @@ function addMesh(geo, mat, x, y, z, parent) {
      The rock point is the island model itself, reused at miniature
      scale (3.0 = 7.5% of the main island's x40), so the statue, the
      single candle cluster and the player's bow spot keep standing at
-     the END_DISC top (12.90), now on real rock.
+     the END_DISC top (13.28 since v0.2.26; 12.90 before), now on
+     real rock.
      Pose (v0.2.10, Anita: the peak cluster blocked the way in from the
      bridge): rotation.y = -pi/2 with the group shifted so the island's
      big FLAT WEST APRON — heightmap point (-10, 9), H = 0.262 — maps
@@ -826,7 +859,14 @@ function addMesh(geo, mat, x, y, z, parent) {
      - 0.075 * H(-10, 9) = 12.271, so the apron surface lands exactly
      on the disc top at the centre; statue/candle/bow spots render
      12.85..12.96 (planted, never floating).
-     Only the visual changed — groundAt's END_DISC branch is untouched. */
+     Only the visual changed — groundAt's END_DISC branch is untouched.
+     v0.2.26: the pose y is 12.651, not 12.271 — the whole island was
+     raised +0.38 so the apron (and the disc, 12.90 -> 13.28) meets
+     the bridge deck ends at 13.28; the spots above render +0.38 too
+     (statue base 13.332). Every island-anchored height moved by the
+     same rigid +0.38: statue base (via miniSurfaceY), the Buddha
+     candle's verbatim exactY (13.62 -> 14.00), the shrine light
+     (14.35 -> 14.73), and the burner moved to the front ledge. */
   buddhaRock = new THREE.Group();
   buddhaRock.position.set(BUDDHA_ROCK_POSE.x, BUDDHA_ROCK_POSE.y, BUDDHA_ROCK_POSE.z);
   buddhaRock.rotation.y = BUDDHA_ROCK_POSE.rotY;
@@ -841,7 +881,9 @@ function addMesh(geo, mat, x, y, z, parent) {
 { // real Buddha statue at the bridge end, facing back west (-X) toward the bridge
   // v0.2.11: x1.5 (1.5 m tall), moved to BUDDHA_POS (back-right corner
   // area — see the layout note at the constant), base planted on the
-  // mini island's rendered surface there (12.952, not the disc top).
+  // mini island's rendered surface there (13.332 since the v0.2.26
+  // lift; 12.952 before — not the disc top either way). The base is
+  // DERIVED from miniSurfaceY, so it rode the lift automatically.
   const buddhaBaseY = miniSurfaceY(BUDDHA_POS.x, BUDDHA_POS.z);
   const b = new THREE.Group();
   buddhaGroup = b;
@@ -1078,10 +1120,13 @@ function resolveTarget(x, z) {
    exactY like the lotus sites: seat (11.95,-4.90), exactY 13.62 —
    1.20 m from BUDDHA_POS, clear of the statue base blocker
    (r 0.572 + tray 0.275), nothing under the disc above the tray.
-   The tall candle's aim heading recomputes from the new seat. */
+   The tall candle's aim heading recomputes from the new seat.
+   v0.2.26: exactY 13.62 -> 14.00 — the verbatim seat rode the island
+   lift (+0.38) rigidly; the audit geometry is unchanged (the tray
+   audit re-verifies it: audit_trays.py, Buddha row). */
 candleLamp(11.95, END_DISC.y, -4.90, 0.55,
   Math.atan2(11.95 - BUDDHA_POS.x, -4.90 - BUDDHA_POS.z),
-  13.62);
+  14.00);
 {
   const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
   const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(-0.6, 14.3, -6.0); scene.add(p2);
