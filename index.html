@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.17">
-<title>Vách Núi — Cảnh vách núi 0.2.17</title>
+<meta name="vn-ver" content="0.2.18">
+<title>Vách Núi — Cảnh vách núi 0.2.18</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.17</div>
+<div id="ver">Vách Núi · v0.2.18</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.17';
+const VN_VER = '0.2.18';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -372,7 +372,7 @@ const fill = new THREE.DirectionalLight(0xaac4e8, 0.55);
 fill.position.set(20, 30, -30);
 scene.add(fill);
 
-/* v0.2.17 — moonlight from the moon: the sun's DAY position, its
+/* v0.2.18 — moonlight from the moon: the sun's DAY position, its
    working distance, and the moon's axis. applySky blends the light
    from SUN_DAY_POS onto the moon's direction as `night` rises (see
    applySky), so by full night the scene is lit FROM the moon sprite.
@@ -390,7 +390,7 @@ const MOON_LIGHT_POS = MOON_POS.clone().normalize().multiplyScalar(SUN_DIST);
    check in animate()). No toggle — real time is simply the behaviour.
    The noon keyframe IS the old fixed look (same stops/fog/lights), so
    midday is unchanged. Colour/intensity travel with the keys; the
-   sun's POSITION was fixed through v0.2.16, but v0.2.17 blends it
+   sun's POSITION was fixed through v0.2.16, but v0.2.18 blends it
    onto the moon's axis as `night` rises (Anita: moonlight must come
    from the moon) — by day it is exactly the old fixed position.
    Candle glows are untouched — they read stronger at night on their
@@ -444,7 +444,7 @@ function applySky(hours) {
   scene.fog.color.copy(s.fog);
   hemi.color.copy(s.hemiSky); hemi.groundColor.copy(s.hemiGround); hemi.intensity = s.hemiI;
   sun.color.copy(s.sun); sun.intensity = s.sunI;
-  /* v0.2.17: light position follows the same `night` channel — day
+  /* v0.2.18: light position follows the same `night` channel — day
      position at night=0, exactly on the moon's axis at night=1, so
      night light and shadows rake down the chasm FROM the moon. The
      target stays at the scene centre; only the position travels,
@@ -468,7 +468,7 @@ function applySky(hours) {
    Both are fog:false, depthWrite:false and sit inside the dome
    (stars r=300, moon ~263 away), so the mountain still occludes them
    by depth test and the transparent pass draws the (nearer) cloud
-   sprites over them. +2 draw calls total. v0.2.17: the moon DOES
+   sprites over them. +2 draw calls total. v0.2.18: the moon DOES
    light the scene — applySky moves the directional light onto the
    moon's axis as night falls (colour/intensity stay the keyframes'
    stylised night levels, undimmed by lunar phase). */
@@ -538,7 +538,7 @@ function refreshMoon(night) {
   moonSprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: moonTex, transparent: true, opacity: 0, depthWrite: false, fog: false }));
   /* Over the chasm, almost exactly on the extended bridge axis
-     (azimuth -1.5°, elevation 16°), inside the dome. v0.2.17 centred
+     (azimuth -1.5°, elevation 16°), inside the dome. v0.2.18 centred
      it on the pilgrimage vista (Anita chose moonlight from the moon
      over rotating the world): measured from the launch the moon
      projects to NDC (0.01, 0.64) landscape and (0.02, 0.64)
@@ -974,7 +974,7 @@ scene.add(player);
 })();
 
 let monkLoaded = false;
-new GLTFLoader(loadMgr).load('models/monk2.glb', (gltf) => {
+new GLTFLoader(loadMgr).load('models/monk2.glb?v=2', (gltf) => {
   const S = 1.15 / 1.957;
   const inner = new THREE.Group();
   inner.scale.setScalar(S);
