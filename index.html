@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.12">
-<title>Vách Núi — Cảnh vách núi 0.2.12</title>
+<meta name="vn-ver" content="0.2.13">
+<title>Vách Núi — Cảnh vách núi 0.2.13</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.12</div>
+<div id="ver">Vách Núi · v0.2.13</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.12';
+const VN_VER = '0.2.13';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -367,15 +367,20 @@ function addMesh(geo, mat, x, y, z, parent) {
   // v0.2.12: the model is fetched/parsed ONCE — the Buddha rock further
   // down is a clone(true) of this same scene (shared geometry and
   // materials, its own transform), not a second 6 MB download.
+  // v0.2.13: the clone is taken from the PRISTINE parse, BEFORE the main
+  // placement mutates g's root transform. (v0.2.12 cloned afterwards and
+  // reset only the scale, so the island inherited the main mountain's
+  // position y=-8.12 and sank 8.12 m under the Buddha — the old second
+  // load never saw that offset because its scene root was at identity.)
   new GLTFLoader(loadMgr).load('models/mountain.glb', (gltf) => {
     const g = gltf.scene;
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    g.scale.setScalar(40);
-    g.position.set(0, -8.12, 0);
-    scene.add(g);
     const mini = g.clone(true);
     mini.scale.setScalar(3.0);
     buddhaRock.add(mini);
+    g.scale.setScalar(40);
+    g.position.set(0, -8.12, 0);
+    scene.add(g);
   }, undefined, () => {});
 }
 { // the real stone rope bridge + end rock point
@@ -410,9 +415,11 @@ function addMesh(geo, mat, x, y, z, parent) {
   buddhaRock.rotation.y = BUDDHA_ROCK_POSE.rotY;
   scene.add(buddhaRock);
   // The rock mesh itself arrives with the single mountain load above
-  // (v0.2.12): that callback clones the loaded scene into this group
-  // at scale 3.0. buddhaRock is assigned during module evaluation,
-  // before any load can complete, so the clone always finds it ready.
+  // (v0.2.12): that callback clones the pristine parsed scene into this
+  // group at scale 3.0 (v0.2.13: cloned before the main placement runs,
+  // so the clone root sits at identity like the old second load's did).
+  // buddhaRock is assigned during module evaluation, before any load
+  // can complete, so the clone always finds it ready.
 }
 { // real Buddha statue at the bridge end, facing back west (-X) toward the bridge
   // v0.2.11: x1.5 (1.5 m tall), moved to BUDDHA_POS (back-right corner
