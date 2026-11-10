@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.9">
-<title>Vách Núi — Cảnh vách núi 0.2.9</title>
+<meta name="vn-ver" content="0.2.10">
+<title>Vách Núi — Cảnh vách núi 0.2.10</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.9</div>
+<div id="ver">Vách Núi · v0.2.10</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.9';
+const VN_VER = '0.2.10';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -333,15 +333,23 @@ function addMesh(geo, mat, x, y, z, parent) {
   }, undefined, () => {});
   /* Buddha rock (v0.2.9): the fake grey disc + support cone are gone.
      The rock point is the island model itself, reused at miniature
-     scale (3.0 = 7.5% of the main island's x40): its apron band (local
-     y 0.203 — the band that sits at world y=0 on the main island) lands
-     exactly on the END_DISC top, so the statue, the single candle
-     cluster and the player's bow spot keep standing at 12.90, now on
-     real rock. Rotated pi so the island's east flank faces the bridge.
+     scale (3.0 = 7.5% of the main island's x40), so the statue, the
+     single candle cluster and the player's bow spot keep standing at
+     the END_DISC top (12.90), now on real rock.
+     Pose (v0.2.10, Anita: the peak cluster blocked the way in from the
+     bridge): rotation.y = -pi/2 with the group shifted so the island's
+     big FLAT WEST APRON — heightmap point (-10, 9), H = 0.262 — maps
+     onto the disc centre. The flat apron now faces the bridge (way in
+     open: rendered surface along the z=-6 line stays <= 12.90) and
+     the island's peak stands EAST as a backdrop behind the Buddha
+     (backdrop strip renders ~13.36 mean). Group y = 12.90 - 0.609
+     - 0.075 * H(-10, 9) = 12.271, so the apron surface lands exactly
+     on the disc top at the centre; statue/candle/bow spots render
+     12.85..12.96 (planted, never floating).
      Only the visual changed — groundAt's END_DISC branch is untouched. */
   buddhaRock = new THREE.Group();
-  buddhaRock.position.set(END_DISC.x, END_DISC.y - 0.203 * 3.0, END_DISC.z);
-  buddhaRock.rotation.y = Math.PI;
+  buddhaRock.position.set(12.175, 12.271, -5.25);
+  buddhaRock.rotation.y = -Math.PI / 2;
   scene.add(buddhaRock);
   new GLTFLoader().load('models/mountain.glb', (gltf) => {
     const g = gltf.scene;
