@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.26">
+<meta name="vn-ver" content="0.2.27">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d1526">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Vách Núi — Cảnh vách núi 0.2.26</title>
+<title>Vách Núi — Cảnh vách núi 0.2.27</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -69,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.26';
+const VN_VER = '0.2.27';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -133,7 +133,9 @@ const END_DISC = { x: 11.5, z: -6.0, y: 13.28, r: 1.1 };
    the same (back, -z) side: base centre on the flat apron band,
    rendered surface 13.332 (12.952 + the v0.2.26 island lift +0.38),
    viewer-side float <= 0.08, the peak rising
-   behind its back rim like a niche. Full evidence: vn-harness5/run9. */
+   behind its back rim like a niche. Full evidence: vn-harness5/run9.
+   (v0.2.27: the candle cluster left this corner for the front ledge
+   — see its call site below.) */
 const BUDDHA_POS = { x: 11.85, z: -6.10 };
 /* Bronze incense burner (v0.2.24; MOVED v0.2.26): the temple's
    burner.glb. In the raw model the tai-chi relief faces +Z (proven
@@ -423,9 +425,10 @@ scene.add(fill);
    pilgrimage viewpoints (launch + bridge, looking east) the statue
    is BACKLIT and its camera-facing side falls dark — on her TikTok
    live nobody could tell what the shrine is. One warm candlelight
-   PointLight sits just WEST of the statue, beside/above its candle
-   cluster (11.95, trayY 14.00, -4.90), lighting the face the
-   pilgrims see. applySky drives it with the same `night` channel as
+   PointLight sits just WEST of the statue, beside/above where its
+   candle cluster stood until v0.2.27 (the cluster moved down to
+   the front ledge; the light itself is unchanged), lighting the
+   face the pilgrims see. applySky drives it with the same `night` channel as
    the stars: exactly 0 all day (the noon look is untouched), full
    at full night, a partial warm glow at dusk. distance 7 keeps the
    pool of light on the island; decay 2 (r160 physical falloff).
@@ -502,6 +505,7 @@ function skyNowHours() {
    nulls let applySky run safely in any order. */
 let starPoints = null, moonSprite = null;
 let backdrop = null;   // v0.2.22 far ridge ring, built with the night-sky block
+let seaBandArr = null; // v0.2.27: the cloud-sea band, for applySky's night opacity lift
 let burnerSmoke = null;   // v0.2.24: the island burner's animated smoke wisps
 function applySky(hours) {
   const s = skyStateAt(hours);
@@ -513,18 +517,33 @@ function applySky(hours) {
      look. At full night the hemisphere and the moonlight run a
      touch stronger and exposure is up 0.08, enough for the frame to
      survive a phone screen / TikTok compression, while the sky
-     stops, fog and star opacity are untouched — night stays night. */
-  hemi.color.copy(s.hemiSky); hemi.groundColor.copy(s.hemiGround); hemi.intensity = s.hemiI + 0.12 * s.night;
-  sun.color.copy(s.sun); sun.intensity = s.sunI + 0.10 * s.night;
+     stops, fog and star opacity are untouched — night stays night.
+     v0.2.27 (Anita: still too dark — "tối quá không thấy đường đi"):
+     the lift roughly DOUBLES again, tuned for PATH AND RELIEF
+     readability from the pilgrim's walking camera: the moon-axis
+     directional (the relief-maker across deck and rock faces) runs
+     0.35 -> 0.80, the hemisphere 0.35 -> 0.68 so the deck top and
+     ledges lift out of black, fill 0.08 -> 0.20 softens the
+     shadowed faces, exposure 0.95 -> 1.17. Every term is still
+     x night, so noon is numerically identical; the sky stops, fog
+     and star opacity stay untouched and the shrine light keeps its
+     v0.2.23 strength — night stays night, just legible. */
+  hemi.color.copy(s.hemiSky); hemi.groundColor.copy(s.hemiGround); hemi.intensity = s.hemiI + 0.33 * s.night;
+  sun.color.copy(s.sun); sun.intensity = s.sunI + 0.45 * s.night;
   /* v0.2.18: light position follows the same `night` channel — day
      position at night=0, exactly on the moon's axis at night=1, so
      night light and shadows rake down the chasm FROM the moon. The
      target stays at the scene centre; only the position travels,
      and only when applySky runs (boot + the per-minute tick). */
   sun.position.copy(SUN_DAY_POS).lerp(MOON_LIGHT_POS, s.night);
-  fill.intensity = s.fillI;
-  renderer.toneMappingExposure = s.exp + 0.08 * s.night;
+  fill.intensity = s.fillI + 0.12 * s.night;
+  renderer.toneMappingExposure = s.exp + 0.22 * s.night;
   for (const c of clouds) c.material.color.copy(s.cloud);
+  /* v0.2.27: the cloud-sea band lifts with the night too (opacity
+     x (1 + 0.35 x night) off each sprite's build opacity), so the
+     sea the peak rises from doesn't stay a black slab under a
+     brighter island. Noon (night = 0) is the build opacity exactly. */
+  if (seaBandArr) for (const sp of seaBandArr) sp.material.opacity = Math.min(1, sp.userData.baseOp * (1 + 0.35 * s.night));
   if (burnerSmoke) for (const m of burnerSmoke.mats) m.color.copy(s.cloud);   // v0.2.24: wisps ride the sky tint like the clouds
   if (starPoints) {
     starPoints.material.opacity = s.night * 0.9;
@@ -747,9 +766,19 @@ const backdropLayers = [];
   scene.add(group);
   backdrop = { group, layers: backdropLayers };
 }
+/* v0.2.27: the far ridges' night floor. The v0.2.22 tints nearly
+   vanish at night (fog-dark blue at fog-dark opacity), so the
+   ridge LINES merge into the sky; applyBackdrop now lerps each
+   layer toward this slate floor by a night-gated factor that
+   steps with the layer's own mix (far 0.30 -> near 0.44), keeping
+   the depth order far < mid < near while lifting every crest line
+   clear of the sky behind it. At noon the factor is exactly 0 and
+   the v0.2.22 tints are bit-for-bit the old ones. */
+const RIDGE_NIGHT_FLOOR = new THREE.Color(0x36486a);
 function applyBackdrop(s) {
   for (const L of backdropLayers) {
     L.mat.color.copy(s.fog).lerp(s.hemiSky, L.mix).multiplyScalar(L.dark);
+    if (s.night > 0) L.mat.color.lerp(RIDGE_NIGHT_FLOOR, (0.30 + 0.35 * L.mix) * s.night);
     L.mat.opacity = L.baseOpacity * (1 - 0.3 * s.night);
   }
 }
@@ -762,8 +791,10 @@ for (let i = 0; i < 42; i++) {
   const s = 36 + ((i * 47) % 40);
   sp.scale.set(s, s * 0.40, 1);
   sp.userData.speed = 0.18 + ((i * 29) % 26) / 60;
+  sp.userData.baseOp = sp.material.opacity;   // v0.2.27: applySky's night lift scales from this
   seaBand.push(sp); clouds.push(sp); scene.add(sp);
 }
+seaBandArr = seaBand;
 
 let skyLastMin = -1;
 applySky(skyNowHours());
@@ -1064,6 +1095,7 @@ for (const L of LOTUS_SITES) candleLamp(L.tx ?? L.x, L.y, L.tz ?? L.z, L.w, unde
 const BLOCKERS = LOTUS_SITES.map(L => ({ x: L.x, z: L.z, r: L.r }));
 BLOCKERS.push({ x: BUDDHA_POS.x, z: BUDDHA_POS.z, r: 0.572 }); // statue base
 BLOCKERS.push({ x: BURNER_POS.x, z: BURNER_POS.z, r: 0.253 }); // bronze burner (v0.2.24): body max radius 0.223 + margin
+BLOCKERS.push({ x: 10.87, z: -4.57, r: 0.0917 }); // Buddha candle tray (v0.2.27): on the front ledge — r = its tray disc 0.275 shrunk x1/3 with the cluster
 function insideBlocker(x, z) {
   for (const b of BLOCKERS) {
     if (Math.hypot(x - b.x, z - b.z) < b.r) return b;
@@ -1123,10 +1155,25 @@ function resolveTarget(x, z) {
    The tall candle's aim heading recomputes from the new seat.
    v0.2.26: exactY 13.62 -> 14.00 — the verbatim seat rode the island
    lift (+0.38) rigidly; the audit geometry is unchanged (the tray
-   audit re-verifies it: audit_trays.py, Buddha row). */
-candleLamp(11.95, END_DISC.y, -4.90, 0.55,
-  Math.atan2(11.95 - BUDDHA_POS.x, -4.90 - BUDDHA_POS.z),
-  14.00);
+   audit re-verifies it: audit_trays.py, Buddha row).
+   v0.2.27 (Anita): the cluster SHRINKS to a third (0.55 -> 0.55/3)
+   and comes DOWN off the upper ledge onto the island's FRONT LEDGE,
+   in front of the small lotus bowl baked into the rock at
+   (11.11,-4.67) — the ledge the burner moved to in v0.2.26. The
+   literal spot west of the bowl is the burner's own (0.26 m away,
+   inside its body disc), so the seat is the nearest clear patch on
+   the bowl's approach side: (10.87,-4.57), 0.26 m WNW of the bowl
+   centre, 0.376 m from the burner centre (blocker discs 0.253 +
+   0.0917 = 0.345 — clear), 1.43 m from BOW_SPOT. Verbatim exactY
+   13.19: the mesh survey's disc max rock is 13.170, and the dense
+   tray audit re-verifies the seat (audit_trays.py, Buddha row).
+   The upper-ledge seat stands empty again, and a blocker disc
+   (r 0.0917 — the tray's own disc, 0.275 at x1/3) moves with the
+   cluster (see BLOCKERS). The tall candle's aim heading recomputes
+   from the new seat, away from the statue as before. */
+candleLamp(10.87, END_DISC.y, -4.57, 0.55 / 3,
+  Math.atan2(10.87 - BUDDHA_POS.x, -4.57 - BUDDHA_POS.z),
+  13.19);
 {
   const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
   const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(-0.6, 14.3, -6.0); scene.add(p2);
