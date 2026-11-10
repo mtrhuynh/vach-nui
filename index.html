@@ -3,8 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.24">
-<title>Vách Núi — Cảnh vách núi 0.2.24</title>
+<meta name="vn-ver" content="0.2.25">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d1526">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Vách Núi — Cảnh vách núi 0.2.25</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -14,8 +17,6 @@
   @keyframes sp { to { transform:rotate(360deg); } }
   #bootTrace { margin-top:10px; font-size:11px; color:#cbb27f; max-width:82vw; word-break:break-word; text-align:center; }
   #loadPct { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:30; background:rgba(36,23,8,.78); color:#e8d9b0; font-size:13.5px; padding:6px 14px; border-radius:999px; pointer-events:none; transition:opacity .45s ease; white-space:nowrap; }
-  #hint { position:fixed; left:10px; bottom:10px; z-index:10; color:#f3e6c8; font-size:12.5px; line-height:1.5; text-shadow:0 1px 3px rgba(0,0,0,.85), 0 0 8px rgba(0,0,0,.6); pointer-events:none; }
-  #ver { position:fixed; right:10px; bottom:10px; z-index:10; color:#e8d9b0; opacity:.75; font-size:11.5px; text-shadow:0 1px 3px rgba(0,0,0,.85); pointer-events:none; }
   #bowChip { position:fixed; z-index:12; transform:translate(-50%,-100%); color:#ffe9b8; font-size:16.5px; font-weight:600; cursor:pointer; user-select:none; -webkit-user-select:none; text-shadow:0 1px 4px rgba(0,0,0,.9), 0 0 10px rgba(0,0,0,.65); display:none; padding:10px 14px; }
 </style>
 </head>
@@ -24,8 +25,6 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
-<div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.24</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.24';
+const VN_VER = '0.2.25';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -1801,5 +1800,6 @@ window.__vn = {
 };
 animate();
 </script>
+<script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})});}</script>
 </body>
 </html>
