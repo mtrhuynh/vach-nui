@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.21">
-<title>Vách Núi — Cảnh vách núi 0.2.21</title>
+<meta name="vn-ver" content="0.2.22">
+<title>Vách Núi — Cảnh vách núi 0.2.22</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.21</div>
+<div id="ver">Vách Núi · v0.2.22</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.21';
+const VN_VER = '0.2.22';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -438,6 +438,7 @@ function skyNowHours() {
 /* Night-sky objects (v0.2.16) are created just below applySky; the
    nulls let applySky run safely in any order. */
 let starPoints = null, moonSprite = null;
+let backdrop = null;   // v0.2.22 far ridge ring, built with the night-sky block
 function applySky(hours) {
   const s = skyStateAt(hours);
   paintSky(s.stops);
@@ -458,6 +459,7 @@ function applySky(hours) {
     starPoints.visible = s.night > 0.01;
   }
   if (moonSprite) refreshMoon(s.night);
+  if (backdrop) applyBackdrop(s);
 }
 /* ================= Night sky: stars + real-phase moon (v0.2.16) =================
    Anita: "Trời đêm cho thấy sao và trăng (ngày rằm)" — and the moon
@@ -581,6 +583,111 @@ function refreshMoon(night) {
     vertexColors: true, fog: false }));
   starPoints.frustumCulled = false;
   scene.add(starPoints);
+}
+
+/* ================= Far backdrop: ridge rings + thicker cloud sea (v0.2.22) ==
+   Anita wanted a roomier world ("không gian rộng rãi hơn") without
+   moving the fitted mountain, so the space grows OUTWARD instead:
+   three concentric rings of procedural ridge silhouettes
+   (132 / 185 / 245 m) turn the lone peak into a mountain range, and
+   a second band of cloud sprites thickens the sea it rises from.
+   Pure decoration — no gameplay system reads these objects.
+   - Ridge material: MeshBasicMaterial, fog:false. Scene fog tops
+     out at 240 m and would flatten the rings, so the tint is driven
+     MANUALLY from the same lerped sky state as everything else
+     (applyBackdrop, called from applySky — the boot paint and the
+     per-minute tick both keep it current): the far ring IS the fog
+     haze colour; nearer rings step toward the hemisphere sky colour
+     and darken, layering the depth. Noon = pale blue-grey
+     silhouettes, dawn blush, golden hour warm, dusk mauve, night
+     near-vanishing dark blue; opacity also eases off as `night`
+     rises. First frame is already correct: this block runs before
+     the boot applySky below, and the first animate frame re-applies.
+   - MOON SECTOR: the profile is clamped around the moon's azimuth
+     (the bridge axis, ~-1.5 deg): from BOTH pilgrimage eyes
+     (launch + mid-bridge) no in-sector ridge top exceeds 7 deg
+     elevation — the moon disc's lower edge rides ~11 deg up, so no
+     silhouette can ever cross it (run13 raycasts this). A few
+     peaks outside the sector rise to ~40 m.
+   - The cloud band reuses the `clouds` array (so applySky tints it
+     and animate() drifts it, free) and the shared cloud texture:
+     42 large soft sprites at y -2.5..-10.5, radius 19..104 — under
+     the chasm rim and 15+ m below the apron, so the peak rises out
+     of cloud instead of hanging over void. */
+const RIDGE_EYES = [new THREE.Vector3(-2.2, 14.8, -6), new THREE.Vector3(5.5, 14.3, -6)];
+const MOON_AZ = Math.atan2(MOON_POS.z, MOON_POS.x);
+const SECTOR_HALF = 24 * Math.PI / 180, SECTOR_BLEND = 9 * Math.PI / 180;
+const SECTOR_CAP = Math.tan(7 * Math.PI / 180);
+const RIDGE_SPECS = [
+  { dist: 245, base: 6, span: 30, opacity: 0.50, order: -3, mix: 0.00, dark: 1.00, seed: 11,
+    waves: [[2, .55, 1.7], [5, .30, 4.2], [9, .18, 2.9], [17, .10, 0.6]],
+    peaks: [[1.15, .30, .13], [2.45, .38, .10], [3.60, .26, .16], [4.90, .34, .11], [5.55, .24, .14]] },
+  { dist: 185, base: 5, span: 25, opacity: 0.65, order: -2, mix: 0.22, dark: 0.94, seed: 29,
+    waves: [[3, .50, 0.4], [6, .32, 2.2], [11, .20, 5.1], [19, .09, 3.3]],
+    peaks: [[0.90, .30, .12], [2.10, .36, .10], [3.30, .28, .15], [4.40, .33, .12], [5.50, .26, .13]] },
+  { dist: 132, base: 4, span: 21, opacity: 0.80, order: -1, mix: 0.40, dark: 0.85, seed: 47,
+    waves: [[2, .48, 5.3], [5, .34, 1.1], [10, .22, 3.7], [16, .10, 2.4]],
+    peaks: [[1.45, .28, .11], [2.80, .32, .12], [4.05, .25, .14], [5.15, .30, .10]] },
+];
+function ridgeTopAt(th, spec) {
+  let ampSum = 0, v = 0;
+  for (const [f, a, p] of spec.waves) { v += a * (0.5 + 0.5 * Math.sin(th * f + p)); ampSum += a; }
+  v /= ampSum;
+  for (const [az, h, w] of spec.peaks) {
+    const d = Math.atan2(Math.sin(th - az), Math.cos(th - az));
+    v += h * Math.exp(-(d * d) / (2 * w * w));
+  }
+  return spec.base + Math.min(1.2, v) * spec.span;
+}
+const backdropLayers = [];
+{
+  const group = new THREE.Group();
+  for (const spec of RIDGE_SPECS) {
+    const SEG = 180, pos = [], idx = [];
+    for (let i = 0; i <= SEG; i++) {
+      const th = (i / SEG) * Math.PI * 2;
+      const r = spec.dist * (1 + 0.06 * Math.sin(th * 3 + spec.seed) + 0.04 * Math.sin(th * 7 + spec.seed * 2.3));
+      const x = Math.cos(th) * r, z = Math.sin(th) * r;
+      let top = ridgeTopAt(th, spec);
+      const dAz = Math.abs(Math.atan2(Math.sin(th - MOON_AZ), Math.cos(th - MOON_AZ)));
+      const capF = smooth01((SECTOR_HALF + SECTOR_BLEND - dAz) / (2 * SECTOR_BLEND));
+      if (capF > 0) {
+        let cap = Infinity;
+        for (const e of RIDGE_EYES) cap = Math.min(cap, e.y + SECTOR_CAP * Math.hypot(x - e.x, z - e.z));
+        top += (Math.min(top, cap) - top) * capF;
+      }
+      pos.push(x, -30, z, x, top, z);
+      if (i < SEG) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setIndex(idx);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: spec.opacity, fog: false, depthWrite: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = spec.order;
+    mesh.frustumCulled = false;
+    group.add(mesh);
+    backdropLayers.push({ mesh, mat, baseOpacity: spec.opacity, mix: spec.mix, dark: spec.dark, dist: spec.dist });
+  }
+  scene.add(group);
+  backdrop = { group, layers: backdropLayers };
+}
+function applyBackdrop(s) {
+  for (const L of backdropLayers) {
+    L.mat.color.copy(s.fog).lerp(s.hemiSky, L.mix).multiplyScalar(L.dark);
+    L.mat.opacity = L.baseOpacity * (1 - 0.3 * s.night);
+  }
+}
+const seaBand = [];
+for (let i = 0; i < 42; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xfff4e2, transparent: true, opacity: 0.34 + ((i * 37) % 34) / 100, depthWrite: false }));
+  const ang = (i / 42) * Math.PI * 2 + (i % 7) * 0.41;
+  const rad = 19 + ((i * 61) % 86);
+  sp.position.set(Math.cos(ang) * rad, -2.5 - ((i * 43) % 9), Math.sin(ang) * rad);
+  const s = 36 + ((i * 47) % 40);
+  sp.scale.set(s, s * 0.40, 1);
+  sp.userData.speed = 0.18 + ((i * 29) % 26) / 60;
+  seaBand.push(sp); clouds.push(sp); scene.add(sp);
 }
 
 let skyLastMin = -1;
@@ -1578,6 +1685,7 @@ window.__vn = {
   moonPhase: (ms) => moonPhaseAt(ms),
   setNow: (ms) => { vnNowMs = ms; },
   stars: () => starPoints, moon: () => moonSprite,
+  backdrop: () => backdrop, seaBand: () => seaBand, clouds: () => clouds,
   sun: () => sun, sunDayPos: () => SUN_DAY_POS,
   moonBucket: () => moonPaintedBucket,
   get faceTarget() { return faceTarget; },
