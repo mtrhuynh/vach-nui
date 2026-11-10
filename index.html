@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.10">
-<title>Vách Núi — Cảnh vách núi 0.2.10</title>
+<meta name="vn-ver" content="0.2.11">
+<title>Vách Núi — Cảnh vách núi 0.2.11</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -23,7 +23,7 @@
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.10</div>
+<div id="ver">Vách Núi · v0.2.11</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -66,7 +66,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.10';
+const VN_VER = '0.2.11';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -111,7 +111,33 @@ const BRIDGE = {
   ],
 };
 const END_DISC = { x: 11.5, z: -6.0, y: 12.9, r: 1.1 };
-const BUDDHA_POS = { x: 12.05, z: -6.0 };
+/* Buddha point layout (v0.2.11, Anita): statue x1.5 at the back-RIGHT
+   corner, the one candle cluster shrunk at the back-LEFT. Her corner
+   (~(12.10, -6.75)) is OFF the mini island: measured on the real
+   heightmap, the island's south rim ends at z ~ -6.7 and the target
+   centre itself has NO surface (the base disc would hang ~30% over
+   the void, footprint height range > 1.2 m everywhere in that zone).
+   The statue therefore sits at the gentlest fully-supported spot on
+   the same (back, -z) side: base centre on the flat apron band,
+   rendered surface 12.952, viewer-side float <= 0.08, the peak rising
+   behind its back rim like a niche. Full evidence: vn-harness5/run9. */
+const BUDDHA_POS = { x: 11.85, z: -6.10 };
+/* Miniature-island pose (set on the buddhaRock group in the build
+   section; kept here as the single source for miniSurfaceY). */
+const BUDDHA_ROCK_POSE = { x: 12.175, y: 12.271, z: -5.25, rotY: -Math.PI / 2 };
+/* Rendered surface height of the miniature island at world (x, z) —
+   the same identity the offline harness verifies through the group's
+   world matrix: island coords = rock-local x (40/3) (the mini runs
+   the island model at x3, the main island at x40, apron 0.203 ->
+   island y 0 via y -8.12); rendered = poseY + 0.075 * H + 0.609.
+   Returns null where the island has no surface. */
+function miniSurfaceY(x, z) {
+  const dx = x - BUDDHA_ROCK_POSE.x, dz = z - BUDDHA_ROCK_POSE.z;
+  const c = Math.cos(BUDDHA_ROCK_POSE.rotY), s = Math.sin(BUDDHA_ROCK_POSE.rotY);
+  const lx = c * dx - s * dz, lz = s * dx + c * dz;
+  const h = sampleGround(lx * (40 / 3), lz * (40 / 3));
+  return h === null ? null : BUDDHA_ROCK_POSE.y + 0.075 * h + 0.609;
+}
 /* Mouth filler disc (v0.2.8, ground-only, no visual): a groove crosses
    the straight route at the bridge mouth — terrain at x~2.25, z=-6
    dips to 11.86 while the launch shelf reads ~13.13 and the (raised)
@@ -158,7 +184,7 @@ let bowGroup = null, rigG = null; // static rig wrappers around bodyG (temple ri
 let buddhaGroup = null;
 let bridgeGroup = null;         // rope-bridge group (transform from BRIDGE)
 let buddhaRock = null;          // miniature island under the Buddha (v0.2.9)
-const lampGroups = [];  // candle lamp groups (8 lotus + 2 Buddha pair)
+const lampGroups = [];  // candle lamp groups (8 lotus + 1 Buddha cluster)
 const lampGlows = [];   // { mat, sprite, base, phase } per lamp, for the flicker loop
 let animState = 'idle';           // idle | walk | xa | bow | recover
 let animT = 0;                    // time inside xa / recover
@@ -348,8 +374,8 @@ function addMesh(geo, mat, x, y, z, parent) {
      12.85..12.96 (planted, never floating).
      Only the visual changed — groundAt's END_DISC branch is untouched. */
   buddhaRock = new THREE.Group();
-  buddhaRock.position.set(12.175, 12.271, -5.25);
-  buddhaRock.rotation.y = -Math.PI / 2;
+  buddhaRock.position.set(BUDDHA_ROCK_POSE.x, BUDDHA_ROCK_POSE.y, BUDDHA_ROCK_POSE.z);
+  buddhaRock.rotation.y = BUDDHA_ROCK_POSE.rotY;
   scene.add(buddhaRock);
   new GLTFLoader().load('models/mountain.glb', (gltf) => {
     const g = gltf.scene;
@@ -359,9 +385,13 @@ function addMesh(geo, mat, x, y, z, parent) {
   }, undefined, () => {});
 }
 { // real Buddha statue at the bridge end, facing back west (-X) toward the bridge
+  // v0.2.11: x1.5 (1.5 m tall), moved to BUDDHA_POS (back-right corner
+  // area — see the layout note at the constant), base planted on the
+  // mini island's rendered surface there (12.952, not the disc top).
+  const buddhaBaseY = miniSurfaceY(BUDDHA_POS.x, BUDDHA_POS.z);
   const b = new THREE.Group();
   buddhaGroup = b;
-  b.position.set(BUDDHA_POS.x, END_DISC.y, BUDDHA_POS.z);
+  b.position.set(BUDDHA_POS.x, buddhaBaseY === null ? END_DISC.y : buddhaBaseY, BUDDHA_POS.z);
   b.rotation.y = -Math.PI / 2;
   scene.add(b);
   new GLTFLoader().load('models/buddha.glb', (gltf) => {
@@ -369,7 +399,7 @@ function addMesh(geo, mat, x, y, z, parent) {
     const bb = new THREE.Box3().setFromObject(m);
     const sz = new THREE.Vector3(); bb.getSize(sz);
     const ctr = new THREE.Vector3(); bb.getCenter(ctr);
-    const s = 1.0 / sz.y;
+    const s = 1.5 / sz.y;
     m.scale.setScalar(s);
     m.position.set(-ctr.x * s, -bb.min.y * s, -ctr.z * s);
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -377,7 +407,7 @@ function addMesh(geo, mat, x, y, z, parent) {
   }, undefined, () => {});
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffbe78, transparent: true, opacity: 0.55, depthWrite: false }));
   halo.scale.set(2.4, 2.4, 1);
-  halo.position.set(BUDDHA_POS.x + 0.25, END_DISC.y + 0.55, BUDDHA_POS.z);
+  halo.position.set(BUDDHA_POS.x + 0.25, (buddhaBaseY === null ? END_DISC.y : buddhaBaseY) + 0.8, BUDDHA_POS.z);
   scene.add(halo);
 }
 
@@ -457,10 +487,18 @@ const LOTUS_SITES = [
 for (const L of LOTUS_SITES) candleLamp(L.x, L.y, L.z, L.w, undefined, L.y);
 /* No plank-end cluster any more (v0.2.7): its spot (10.85, -6.55) now
    stands on the new bridge's deck, so the cluster was removed. */
-/* The Buddha pair: big clusters flanking the statue's front, tall
-   candles aimed outward, away from the statue at (12.05, -6). */
-/* Buddha cluster: ONE only (Anita 2026-11-09) — the pair crowded the disc. */
-candleLamp(11.55, END_DISC.y, -5.15, 0.85, Math.atan2(-0.5, 0.85));
+/* Buddha cluster: ONE only (Anita 2026-11-09) — the pair crowded the disc.
+   v0.2.11 (Anita): shrunk (tray 0.85 -> 0.55) and moved to the back-LEFT
+   corner, grounded on the mini island's rendered surface there (the
+   spot sits on the peak's lower slope, surface 13.437 — the cluster
+   nests against the terrace). Nudged 0.11 m east of her ~(11.95,-5.25)
+   target: tray height range improves 0.56 -> 0.40 and the clearance
+   to the x1.5 statue grows from ~0.01 to ~0.12 (evidence: run9). The
+   tall candle still aims away from the statue. */
+const buddhaCandleSurf = miniSurfaceY(12.00, -5.15);
+candleLamp(12.00, END_DISC.y, -5.15, 0.55,
+  Math.atan2(12.00 - BUDDHA_POS.x, -5.15 - BUDDHA_POS.z),
+  buddhaCandleSurf === null ? undefined : buddhaCandleSurf - 0.03);
 {
   const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
   const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(-0.6, 14.3, -6.0); scene.add(p2);
@@ -939,9 +977,11 @@ window.__vn = {
   get walkBlend() { return walkBlend; },
   chip: bowChip, scene: () => scene,
   lamps: () => lampGroups, lampGlows: () => lampGlows,
-  startXa, startBow, sampleGround, groundAt, deckYAt,
+  startXa, startBow, sampleGround, groundAt, deckYAt, miniSurfaceY,
   bridge: () => bridgeGroup, bridgeData: () => BRIDGE, mouthDisc: () => MOUTH_DISC,
   buddhaRock: () => buddhaRock, endDisc: () => END_DISC,
+  buddha: () => buddhaGroup, buddhaPos: () => BUDDHA_POS,
+  get faceTarget() { return faceTarget; },
   setWalk: (x, z) => { walkTarget = new THREE.Vector3(x, 0, z); },
   keys,
   camera: () => camera, controls: () => controls,
