@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.18">
-<title>Vách Núi — Cảnh vách núi 0.2.18</title>
+<meta name="vn-ver" content="0.2.19">
+<title>Vách Núi — Cảnh vách núi 0.2.19</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.18</div>
+<div id="ver">Vách Núi · v0.2.19</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.18';
+const VN_VER = '0.2.19';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -808,18 +808,40 @@ function candleLamp(x, yFallback, z, width, aimHeading, exactY) {
         sat on the rim petals; floated 0.36 over the floor (9.08).
      L7 (-5.44,6.53,0.50) -> (-5.36,6.23,0.60): 0.31 north, on the
         rim; the height at the true centre was right (floor 0.50).
-   Heights are used EXACTLY (no groundAt derivation), as before. */
+   Heights are used EXACTLY (no groundAt derivation), as before.
+   v0.2.19 — INTERSECTION AUDIT (dense rays under each tray disc on
+   the real mesh; Anita's law: a cluster must NEVER be pierced by
+   rock). The v0.2.15 rule seated the tray CENTRE in the cup, but
+   the tray is a disc: rim rock inside the disc still poked through
+   the tray at five lotus sites (and at the Buddha cluster — see
+   below). Re-seats (tray centre + trayY; x/z/r in the table stay
+   the FLOWER centres — the movement blockers do NOT move; tx/tz,
+   where present, are the tray centre inside the same flower):
+     L1: raise only, trayY -0.54 -> -0.51 — rim rock pierced the
+        tray edge at the old seat (disc clearance was -0.014).
+     L2: raise only, trayY 2.40 -> 2.41 — rim rock grazed the tray
+        edge (clearance +0.001, under the +0.01 bar).
+     L3: tray (4.98,7.84,2.76) -> (5.23,7.99,3.28) — a spike at
+        the flower's centre pierced the tray by 0.35; the new tray
+        centre dodges the spike inside the same flower.
+     L4: tray (-11.84,-4.98,8.99) -> (-11.79,-4.73,8.88) — rim
+        rock pierced the tray at the old seat (-0.118).
+     L7: tray (-5.36,6.23,0.60) -> (-5.16,6.03,0.49) — rim rock
+        pierced the tray at the old seat (-0.130).
+   L0 is deliberately untouched (Anita is deciding its fate
+   separately); L5/L6 already cleared the audit. Post-fix audit:
+   no re-seated tray is pierced (vn-harness5/audit_trays.py). */
 const LOTUS_SITES = [
   { x: -1.08, z: -4.87, y: 13.50, w: 1.1, r: 0.82 },   // L0 giant, by the launch terrace
-  { x: 7.78, z: 14.22, y: -0.54, w: 0.5, r: 0.90 },    // L1
-  { x: -14.08, z: 1.43, y: 2.40, w: 0.5, r: 0.86 },    // L2
-  { x: 4.98, z: 7.84, y: 2.76, w: 0.5, r: 0.66 },      // L3 (shelf under an overhang)
-  { x: -11.84, z: -4.98, y: 8.99, w: 0.5, r: 0.90 },   // L4
+  { x: 7.78, z: 14.22, y: -0.51, w: 0.5, r: 0.90 },    // L1 (tray raised, v0.2.19)
+  { x: -14.08, z: 1.43, y: 2.41, w: 0.5, r: 0.86 },    // L2 (tray raised, v0.2.19)
+  { x: 4.98, z: 7.84, y: 3.28, tx: 5.23, tz: 7.99, w: 0.5, r: 0.66 },      // L3 (shelf under an overhang; tray dodges the centre spike, v0.2.19)
+  { x: -11.84, z: -4.98, y: 8.88, tx: -11.79, tz: -4.73, w: 0.5, r: 0.90 }, // L4 (tray re-seated, v0.2.19)
   { x: -6.10, z: 14.06, y: 0.54, w: 0.5, r: 0.83 },    // L5
   { x: 6.04, z: 2.45, y: 9.18, w: 0.5, r: 0.79 },      // L6
-  { x: -5.36, z: 6.23, y: 0.60, w: 0.5, r: 0.65 },     // L7
+  { x: -5.36, z: 6.23, y: 0.49, tx: -5.16, tz: 6.03, w: 0.5, r: 0.65 },    // L7 (tray re-seated, v0.2.19)
 ];
-for (const L of LOTUS_SITES) candleLamp(L.x, L.y, L.z, L.w, undefined, L.y);
+for (const L of LOTUS_SITES) candleLamp(L.tx ?? L.x, L.y, L.tz ?? L.z, L.w, undefined, L.y);
 
 /* ================= Movement blockers (v0.2.15) =================
    The lotus bowls are walkable heightmap surface, so a tap-walk
@@ -885,11 +907,21 @@ function resolveTarget(x, z) {
    nests against the terrace). Nudged 0.11 m east of her ~(11.95,-5.25)
    target: tray height range improves 0.56 -> 0.40 and the clearance
    to the x1.5 statue grows from ~0.01 to ~0.12 (evidence: run9). The
-   tall candle still aims away from the statue. */
-const buddhaCandleSurf = miniSurfaceY(12.00, -5.15);
-candleLamp(12.00, END_DISC.y, -5.15, 0.55,
-  Math.atan2(12.00 - BUDDHA_POS.x, -5.15 - BUDDHA_POS.z),
-  buddhaCandleSurf === null ? undefined : buddhaCandleSurf - 0.03);
+   tall candle still aims away from the statue.
+   v0.2.19 (intersection audit): that grounding rule — exactY =
+   miniSurfaceY(centre) - 0.03 — breaks Anita's law (a cluster must
+   never be pierced by rock) EVERYWHERE near the point: the island
+   surface inside the tray disc always contains rock >= 0.07 above
+   the centre surface, so the tray rim was pierced no matter which
+   centre the rule picked (at (12.00,-5.15): disc max 13.617 vs
+   tray 13.407 — pierced by 0.21). The cluster now uses a VERBATIM
+   exactY like the lotus sites: seat (11.95,-4.90), exactY 13.62 —
+   1.20 m from BUDDHA_POS, clear of the statue base blocker
+   (r 0.572 + tray 0.275), nothing under the disc above the tray.
+   The tall candle's aim heading recomputes from the new seat. */
+candleLamp(11.95, END_DISC.y, -4.90, 0.55,
+  Math.atan2(11.95 - BUDDHA_POS.x, -4.90 - BUDDHA_POS.z),
+  13.62);
 {
   const p1 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p1.position.set(0, 1.6, 8); scene.add(p1);
   const p2 = new THREE.PointLight(0xffa050, 12, 15, 1.8); p2.position.set(-0.6, 14.3, -6.0); scene.add(p2);
