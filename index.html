@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.14">
-<title>Vách Núi — Cảnh vách núi 0.2.14</title>
+<meta name="vn-ver" content="0.2.15">
+<title>Vách Núi — Cảnh vách núi 0.2.15</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.14</div>
+<div id="ver">Vách Núi · v0.2.15</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.14';
+const VN_VER = '0.2.15';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -335,28 +335,26 @@ function radialTex(size, stops) {
 const glowTex = radialTex(128, [[0, 'rgba(255,255,255,1)'], [0.35, 'rgba(255,255,255,0.45)'], [1, 'rgba(255,255,255,0)']]);
 const cloudTex = radialTex(256, [[0, 'rgba(255,255,255,0.95)'], [0.45, 'rgba(255,255,255,0.55)'], [0.75, 'rgba(255,255,255,0.18)'], [1, 'rgba(255,255,255,0)']]);
 
-function skyTexture() {
-  const c = document.createElement('canvas'); c.width = 4; c.height = 512;
-  const g = c.getContext('2d');
-  const gr = g.createLinearGradient(0, 0, 0, 512);
-  gr.addColorStop(0.0, '#5f96d6');
-  gr.addColorStop(0.38, '#8fb8e8');
-  gr.addColorStop(0.60, '#c3d9f0');
-  gr.addColorStop(0.74, '#eef0e6');
-  gr.addColorStop(0.82, '#f7ead0');
-  gr.addColorStop(0.88, '#d9c9a8');
-  gr.addColorStop(1.0, '#b8a888');
-  g.fillStyle = gr; g.fillRect(0, 0, 4, 512);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+/* Sky gradient: a 4x512 canvas texture repainted by the real-time sky
+   system (v0.2.15) whenever the minute ticks over. SKY_POS are the
+   gradient stop positions; the colours come from skyStateAt(). */
+const SKY_POS = [0.0, 0.38, 0.60, 0.74, 0.82, 0.88, 1.0];
+const skyCanvas = document.createElement('canvas'); skyCanvas.width = 4; skyCanvas.height = 512;
+const skyCtx = skyCanvas.getContext('2d');
+const skyTex = new THREE.CanvasTexture(skyCanvas);
+skyTex.colorSpace = THREE.SRGBColorSpace;
+function paintSky(stops) {
+  const gr = skyCtx.createLinearGradient(0, 0, 0, 512);
+  for (let i = 0; i < stops.length; i++) gr.addColorStop(SKY_POS[i], '#' + stops[i].getHexString());
+  skyCtx.fillStyle = gr; skyCtx.fillRect(0, 0, 4, 512);
+  skyTex.needsUpdate = true;
 }
 
 /* ================= Sky, lights ================= */
 {
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(320, 24, 16),
-    new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false })
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
   );
   scene.add(dome);
 }
@@ -373,6 +371,68 @@ scene.add(sun);
 const fill = new THREE.DirectionalLight(0xaac4e8, 0.55);
 fill.position.set(20, 30, -30);
 scene.add(fill);
+
+/* ================= Real-time sky (v0.2.15) =================
+   Sky + lighting follow the device's real local clock, like the
+   Temple: keyframed palettes across the day (night -> dawn -> morning
+   -> noon -> afternoon -> golden -> dusk -> night), lerped by the
+   current local time and re-applied when the minute ticks (see the
+   check in animate()). No toggle — real time is simply the behaviour.
+   The noon keyframe IS the old fixed look (same stops/fog/lights), so
+   midday is unchanged. The sun keeps its fixed position (moving it
+   would swing the shadow camera); only colour/intensity travel.
+   Candle glows are untouched — they read stronger at night on their
+   own. skyStateAt(hours) is pure (no Date inside) for the harness. */
+const SKY_KEYS = [
+  { h: 0.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
+  { h: 5.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
+  { h: 6.5,  stops: [0x2e4a75, 0x5d7ba6, 0x93a9c4, 0xd9b48f, 0xf7c489, 0xe8a56b, 0x8a6a52], fog: 0xcbb59a, hemiSky: 0x8fa5c8, hemiGround: 0x5f5344, hemiI: 0.80, sun: 0xffb066, sunI: 1.60, fillI: 0.30, exp: 1.05, cloud: 0xf7cfa0 },
+  { h: 8.5,  stops: [0x4f83cc, 0x7cabdf, 0xaecdf0, 0xe8eedd, 0xf7ead0, 0xdccba6, 0xb3a284], fog: 0xd5e2ee, hemiSky: 0xc4daf2, hemiGround: 0x867a5f, hemiI: 1.15, sun: 0xffedca, sunI: 2.10, fillI: 0.50, exp: 1.10, cloud: 0xfdf0da },
+  { h: 12.0, stops: [0x5f96d6, 0x8fb8e8, 0xc3d9f0, 0xeef0e6, 0xf7ead0, 0xd9c9a8, 0xb8a888], fog: 0xdfe8f2, hemiSky: 0xcfe0f4, hemiGround: 0x8a7a5f, hemiI: 1.25, sun: 0xfff1da, sunI: 2.30, fillI: 0.55, exp: 1.10, cloud: 0xfff4e2 },
+  { h: 16.5, stops: [0x558fd2, 0x86b0e2, 0xbdd5ee, 0xeee9d8, 0xf9e3bc, 0xdcbd8f, 0xab9574], fog: 0xdde0d8, hemiSky: 0xc9dcf0, hemiGround: 0x887856, hemiI: 1.20, sun: 0xffe9bd, sunI: 2.20, fillI: 0.50, exp: 1.10, cloud: 0xfbeed2 },
+  { h: 17.5, stops: [0x3f5f96, 0x6d84b4, 0xa8a9c0, 0xe5b98c, 0xfca95e, 0xe07f45, 0x7d5a40], fog: 0xd9b490, hemiSky: 0x93a3c4, hemiGround: 0x6b5844, hemiI: 0.85, sun: 0xff9448, sunI: 1.70, fillI: 0.30, exp: 1.05, cloud: 0xf9bd84 },
+  { h: 19.0, stops: [0x131c3d, 0x1d2a52, 0x2c3a63, 0x4a4470, 0x6e5570, 0x4c3a52, 0x241c33], fog: 0x2c2a44, hemiSky: 0x46547c, hemiGround: 0x23222b, hemiI: 0.45, sun: 0x7d90c4, sunI: 0.50, fillI: 0.12, exp: 0.98, cloud: 0x7d84a8 },
+  { h: 21.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
+  { h: 24.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
+];
+for (const k of SKY_KEYS) {
+  k.stopsC = k.stops.map(x => new THREE.Color(x));
+  k.fogC = new THREE.Color(k.fog); k.hemiSkyC = new THREE.Color(k.hemiSky);
+  k.hemiGroundC = new THREE.Color(k.hemiGround); k.sunC = new THREE.Color(k.sun);
+  k.cloudC = new THREE.Color(k.cloud);
+}
+function skyStateAt(hours) {
+  const hh = Math.min(24, Math.max(0, hours));
+  let i = 0;
+  while (i < SKY_KEYS.length - 2 && SKY_KEYS[i + 1].h <= hh) i++;
+  const a = SKY_KEYS[i], b = SKY_KEYS[i + 1];
+  const f = (hh - a.h) / Math.max(1e-6, b.h - a.h);
+  const mix = (ca, cb) => new THREE.Color().lerpColors(ca, cb, f);
+  const num = (na, nb) => na + (nb - na) * f;
+  return {
+    stops: a.stopsC.map((c, j) => mix(c, b.stopsC[j])),
+    fog: mix(a.fogC, b.fogC), hemiSky: mix(a.hemiSkyC, b.hemiSkyC),
+    hemiGround: mix(a.hemiGroundC, b.hemiGroundC), hemiI: num(a.hemiI, b.hemiI),
+    sun: mix(a.sunC, b.sunC), sunI: num(a.sunI, b.sunI), fillI: num(a.fillI, b.fillI),
+    exp: num(a.exp, b.exp), cloud: mix(a.cloudC, b.cloudC),
+  };
+}
+function skyNowHours() {
+  const d = new Date();
+  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+}
+function applySky(hours) {
+  const s = skyStateAt(hours);
+  paintSky(s.stops);
+  scene.fog.color.copy(s.fog);
+  hemi.color.copy(s.hemiSky); hemi.groundColor.copy(s.hemiGround); hemi.intensity = s.hemiI;
+  sun.color.copy(s.sun); sun.intensity = s.sunI;
+  fill.intensity = s.fillI;
+  renderer.toneMappingExposure = s.exp;
+  for (const c of clouds) c.material.color.copy(s.cloud);
+}
+let skyLastMin = -1;
+applySky(skyNowHours());
 
 /* ================= Materials ================= */
 const MAT = {
@@ -561,22 +621,109 @@ function candleLamp(x, yFallback, z, width, aimHeading, exactY) {
   lampGroups.push(g);
   return g;
 }
-/* Lotus-bowl sites (v0.2.6): the mountain model has giant lotus bowls
-   baked in; the bowls' positions + sitting heights were measured from the
-   mesh's warm-coloured faces, so the trayY values below are used EXACTLY
-   (no groundAt derivation). L0's trayY is the best estimate from its
-   cluster's rim — eyeball-tunable if that one cluster sits off. */
+/* Lotus-bowl sites (v0.2.6; RE-MEASURED v0.2.15): the mountain model
+   has lotus bowls baked in. The v0.2.6 seats came from the warm-face
+   clusters' rims and several were off — Anita's screenshot caught L0's
+   cluster sitting on the slope BELOW its bowl. v0.2.15 re-measured
+   every bowl against the real mesh (petal-colour segmentation of the
+   texture -> per-flower petal ring centroid = the cup centre; a fine
+   ray-cast grid -> the cup floor; cross-checked against the heightmap
+   and top-down orthophotos of each flower):
+     centre = petal-ring centroid, trayY = cup floor + 0.10 (the
+     nesting offset the well-seated clusters L1/L2 already used:
+     +0.09/+0.12), r = the measured petal-ring radius (r85 of the
+     flower's petal faces about the centre) for the movement blockers.
+   Per-site diagnosis (claimed -> measured):
+     L0 (-1.18,-3.77,12.55) -> (-1.08,-4.87,13.50): 1.11 m NORTH of the
+        cup, on bare slope; tray sunk 0.35 into the slope surface and
+        0.85 below the cup floor (13.40). The reported bug.
+     L1 (8.02,14.31,-0.55) -> (7.78,14.22,-0.54): 0.26 off-centre;
+        height was already right (floor -0.64).
+     L2 (-14.19,1.55,2.42) -> (-14.08,1.43,2.40): 0.16 off; height
+        right (floor 2.30).
+     L3 (4.94,7.80,2.90) -> (4.98,7.84,2.76): centre was right; the
+        tray floated 0.24 over the flower's shelf (floor 2.66). NOTE:
+        this flower sits on a shelf UNDER a rock overhang — the
+        heightmap's walkable surface there is the overhang top (8.44),
+        so the monk passes OVER this bowl, never through it.
+     L4 (-11.84,-4.98,9.08) -> (-11.84,-4.98,8.99): centre was right
+        (the petal centroid is dragged 0.20 SE by petals sprawling
+        down the slope; the claimed point is the visual cup centre);
+        the tray floated 0.19 (floor 8.89).
+     L5 (-6.32,14.26,0.67) -> (-6.10,14.06,0.54): 0.30 west of centre;
+        floated 0.23 (floor 0.44).
+     L6 (6.04,2.95,9.44) -> (6.04,2.45,9.17): 0.50 NORTH — the tray
+        sat on the rim petals; floated 0.36 over the floor (9.08).
+     L7 (-5.44,6.53,0.50) -> (-5.36,6.23,0.60): 0.31 north, on the
+        rim; the height at the true centre was right (floor 0.50).
+   Heights are used EXACTLY (no groundAt derivation), as before. */
 const LOTUS_SITES = [
-  { x: -1.18, z: -3.77, y: 12.55, w: 1.1 },   // L0 giant, by the launch terrace
-  { x: 8.02, z: 14.31, y: -0.55, w: 0.5 },    // L1
-  { x: -14.19, z: 1.55, y: 2.42, w: 0.5 },    // L2
-  { x: 4.94, z: 7.80, y: 2.90, w: 0.5 },      // L3
-  { x: -11.84, z: -4.98, y: 9.08, w: 0.5 },   // L4
-  { x: -6.32, z: 14.26, y: 0.67, w: 0.5 },    // L5
-  { x: 6.04, z: 2.95, y: 9.44, w: 0.5 },      // L6
-  { x: -5.44, z: 6.53, y: 0.50, w: 0.5 },     // L7
+  { x: -1.08, z: -4.87, y: 13.50, w: 1.1, r: 0.82 },   // L0 giant, by the launch terrace
+  { x: 7.78, z: 14.22, y: -0.54, w: 0.5, r: 0.90 },    // L1
+  { x: -14.08, z: 1.43, y: 2.40, w: 0.5, r: 0.86 },    // L2
+  { x: 4.98, z: 7.84, y: 2.76, w: 0.5, r: 0.66 },      // L3 (shelf under an overhang)
+  { x: -11.84, z: -4.98, y: 8.99, w: 0.5, r: 0.90 },   // L4
+  { x: -6.10, z: 14.06, y: 0.54, w: 0.5, r: 0.83 },    // L5
+  { x: 6.04, z: 2.45, y: 9.18, w: 0.5, r: 0.79 },      // L6
+  { x: -5.36, z: 6.23, y: 0.60, w: 0.5, r: 0.65 },     // L7
 ];
 for (const L of LOTUS_SITES) candleLamp(L.x, L.y, L.z, L.w, undefined, L.y);
+
+/* ================= Movement blockers (v0.2.15) =================
+   The lotus bowls are walkable heightmap surface, so a tap-walk
+   beeline strolled straight through the petals. Each bowl is now a
+   non-walkable disc (centre + measured petal-ring radius from the
+   table above — no padding), and so is the Buddha statue's own lotus
+   base (its fused base measures r ~0.572 about BUDDHA_POS, from the
+   v0.2.11 mesh audit). Movement steps into a disc are refused and the
+   axis-slide fallback in movePlayer skims around it, exactly like the
+   rise gate; a tap target inside a disc resolves to the nearest
+   walkable point outside it (resolveTarget, used by setWalkTarget).
+   Route clearance (measured): the tightest is L0 — its disc edge
+   stays 0.31 m north of the z=-6 corridor line and 0.41 m clear of
+   the launch point (-0.6,-6); every other bowl is >4 m from the
+   route. The statue disc overlaps END_DISC's east side by design
+   (the statue stands there); BOW_SPOT (10.95,-6) is 0.33 m clear of
+   it, and a tap on the disc centre resolves to the disc's west edge,
+   still on END_DISC, so the arrival xa and the bow are untouched. */
+const BLOCKERS = LOTUS_SITES.map(L => ({ x: L.x, z: L.z, r: L.r }));
+BLOCKERS.push({ x: BUDDHA_POS.x, z: BUDDHA_POS.z, r: 0.572 }); // statue base
+function insideBlocker(x, z) {
+  for (const b of BLOCKERS) {
+    if (Math.hypot(x - b.x, z - b.z) < b.r) return b;
+  }
+  return null;
+}
+/* Which blocker disc refuses the step (cx,cz) -> (nx,nz), if any? A
+   step that lands inside a disc is refused — unless the avatar is
+   already inside that disc (a session restored there), in which case
+   only steps that move DEEPER are refused, so it can always walk out. */
+function blockerRefusal(cx, cz, nx, nz) {
+  for (const b of BLOCKERS) {
+    const dn = Math.hypot(nx - b.x, nz - b.z);
+    if (dn >= b.r) continue;
+    const dc = Math.hypot(cx - b.x, cz - b.z);
+    if (dc < b.r && dn >= dc) continue; // inside: outward/flat is fine
+    return b;
+  }
+  return null;
+}
+function stepBlocked(cx, cz, nx, nz) { return blockerRefusal(cx, cz, nx, nz) !== null; }
+/* A walk target inside a blocker disc resolves to the nearest
+   walkable point outside it: a radial push-out past the rim first
+   (keeps the arrival spot on END_DISC for disc-centre taps), with the
+   ring search as fallback. */
+function resolveTarget(x, z) {
+  const b = insideBlocker(x, z);
+  if (!b) return { x, z };
+  const dx = x - b.x, dz = z - b.z;
+  const d = Math.hypot(dx, dz);
+  const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
+  const px = b.x + ux * (b.r + 0.06), pz = b.z + uz * (b.r + 0.06);
+  if (groundAt(px, pz) !== null && !insideBlocker(px, pz)) return { x: px, z: pz };
+  const snap = nearestWalkable(x, z);
+  return snap || { x, z };
+}
 /* No plank-end cluster any more (v0.2.7): its spot (10.85, -6.55) now
    stands on the new bridge's deck, so the cluster was removed. */
 /* Buddha cluster: ONE only (Anita 2026-11-09) — the pair crowded the disc.
@@ -743,12 +890,12 @@ function canStep(curY, nxtY) {
   return nxtY !== null && Math.abs(nxtY - curY) <= RISE_GATE;
 }
 function nearestWalkable(px, pz) {
-  if (groundAt(px, pz) !== null) return { x: px, z: pz };
+  if (groundAt(px, pz) !== null && !insideBlocker(px, pz)) return { x: px, z: pz };
   for (let r = 0.4; r <= 7.001; r += 0.4) {
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
       const cx = px + Math.cos(a) * r, cz = pz + Math.sin(a) * r;
-      if (groundAt(cx, cz) !== null) return { x: cx, z: cz };
+      if (groundAt(cx, cz) !== null && !insideBlocker(cx, cz)) return { x: cx, z: cz };
     }
   }
   return null;
@@ -839,10 +986,33 @@ function movePlayer(dt) {
     const curY = groundAt(player.position.x, player.position.z);
     const baseY = curY !== null ? curY : player.position.y;
     const nx = player.position.x + mx * step, nz = player.position.z + mz * step;
-    if (canStep(baseY, groundAt(nx, nz))) { player.position.x = nx; player.position.z = nz; }
-    else if (canStep(baseY, groundAt(nx, player.position.z))) { player.position.x = nx; }
-    else if (canStep(baseY, groundAt(player.position.x, nz))) { player.position.z = nz; }
-    else if (walkTarget) walkTarget = null;
+    const px = player.position.x, pz = player.position.z;
+    const stepOK = (tx, tz) => canStep(baseY, groundAt(tx, tz)) && !stepBlocked(px, pz, tx, tz);
+    if (stepOK(nx, nz)) { player.position.x = nx; player.position.z = nz; }
+    else if (stepOK(nx, pz)) { player.position.x = nx; }
+    else if (stepOK(px, nz)) { player.position.z = nz; }
+    else {
+      /* A round blocker approached diagonally refuses all three axis
+         steps (both components point at its centre, so neither slide
+         exists) — where a cliff wall would rightly stall the walk, a
+         bowl must be walked AROUND: deflect the step tangentially
+         along the disc's rim, on the side the travel direction picks,
+         and keep the walk order. Only a rise-gate refusal (no blocker)
+         still drops the target, as before. */
+      const b = blockerRefusal(px, pz, nx, nz);
+      let moved = false;
+      if (b) {
+        const rx = px - b.x, rz = pz - b.z;
+        const sgn = ((-rz) * mx + rx * mz) >= 0 ? 1 : -1;
+        const tx = sgn * -rz, tz = sgn * rx;
+        const tl = Math.hypot(tx, tz);
+        if (tl > 1e-6) {
+          const gx = px + (tx / tl) * step, gz = pz + (tz / tl) * step;
+          if (stepOK(gx, gz)) { player.position.x = gx; player.position.z = gz; moved = true; }
+        }
+      }
+      if (!moved && walkTarget) walkTarget = null;
+    }
   }
 }
 function rideGround(dt) {
@@ -901,8 +1071,9 @@ function armJourney(x, z) {
 }
 function setWalkTarget(x, z, sys) {
   if (!sys) cancelPilgrim();
-  walkTarget = new THREE.Vector3(x, 0, z);
-  armJourney(x, z);
+  const r = resolveTarget(x, z); // a target inside a bowl/statue disc steps outside it
+  walkTarget = new THREE.Vector3(r.x, 0, r.z);
+  armJourney(r.x, r.z);
 }
 function cancelPilgrim() {
   if (pilgrim) { pilgrim = null; paceScale = 1; }
@@ -1152,6 +1323,9 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.elapsedTime;
+  // Real-time sky: re-apply when the local minute ticks over.
+  { const dNow = new Date(); const mNow = dNow.getHours() * 60 + dNow.getMinutes();
+    if (mNow !== skyLastMin) { skyLastMin = mNow; applySky(skyNowHours()); } }
   if (t - vnSaveT >= 1) { vnSaveT = t; saveSession(); }
   if (!animLocked()) movePlayer(dt);
   rideGround(dt);
@@ -1195,6 +1369,17 @@ window.__vn = {
   bridge: () => bridgeGroup, bridgeData: () => BRIDGE, mouthDisc: () => MOUTH_DISC,
   buddhaRock: () => buddhaRock, endDisc: () => END_DISC,
   buddha: () => buddhaGroup, buddhaPos: () => BUDDHA_POS,
+  lotusSites: () => LOTUS_SITES, blockers: () => BLOCKERS,
+  resolveTarget, insideBlocker,
+  skyAt: (h) => {
+    const s = skyStateAt(h);
+    return {
+      stops: s.stops.map(c => '#' + c.getHexString()), fog: '#' + s.fog.getHexString(),
+      hemiSky: '#' + s.hemiSky.getHexString(), hemiGround: '#' + s.hemiGround.getHexString(),
+      hemiI: s.hemiI, sun: '#' + s.sun.getHexString(), sunI: s.sunI,
+      fillI: s.fillI, exp: s.exp, cloud: '#' + s.cloud.getHexString(),
+    };
+  },
   get faceTarget() { return faceTarget; },
   setWalk: (x, z) => { setWalkTarget(x, z); },
   pilgrimage: startPilgrimage,
