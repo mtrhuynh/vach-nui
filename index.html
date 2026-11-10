@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.15">
-<title>Vách Núi — Cảnh vách núi 0.2.15</title>
+<meta name="vn-ver" content="0.2.16">
+<title>Vách Núi — Cảnh vách núi 0.2.16</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.15</div>
+<div id="ver">Vách Núi · v0.2.16</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.15';
+const VN_VER = '0.2.16';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -382,18 +382,20 @@ scene.add(fill);
    midday is unchanged. The sun keeps its fixed position (moving it
    would swing the shadow camera); only colour/intensity travel.
    Candle glows are untouched — they read stronger at night on their
-   own. skyStateAt(hours) is pure (no Date inside) for the harness. */
+   own. skyStateAt(hours) is pure (no Date inside) for the harness.
+   v0.2.16: every keyframe also carries `night` (0..1 nightness);
+   applySky feeds it to the star field and the moon below. */
 const SKY_KEYS = [
-  { h: 0.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
-  { h: 5.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
-  { h: 6.5,  stops: [0x2e4a75, 0x5d7ba6, 0x93a9c4, 0xd9b48f, 0xf7c489, 0xe8a56b, 0x8a6a52], fog: 0xcbb59a, hemiSky: 0x8fa5c8, hemiGround: 0x5f5344, hemiI: 0.80, sun: 0xffb066, sunI: 1.60, fillI: 0.30, exp: 1.05, cloud: 0xf7cfa0 },
-  { h: 8.5,  stops: [0x4f83cc, 0x7cabdf, 0xaecdf0, 0xe8eedd, 0xf7ead0, 0xdccba6, 0xb3a284], fog: 0xd5e2ee, hemiSky: 0xc4daf2, hemiGround: 0x867a5f, hemiI: 1.15, sun: 0xffedca, sunI: 2.10, fillI: 0.50, exp: 1.10, cloud: 0xfdf0da },
-  { h: 12.0, stops: [0x5f96d6, 0x8fb8e8, 0xc3d9f0, 0xeef0e6, 0xf7ead0, 0xd9c9a8, 0xb8a888], fog: 0xdfe8f2, hemiSky: 0xcfe0f4, hemiGround: 0x8a7a5f, hemiI: 1.25, sun: 0xfff1da, sunI: 2.30, fillI: 0.55, exp: 1.10, cloud: 0xfff4e2 },
-  { h: 16.5, stops: [0x558fd2, 0x86b0e2, 0xbdd5ee, 0xeee9d8, 0xf9e3bc, 0xdcbd8f, 0xab9574], fog: 0xdde0d8, hemiSky: 0xc9dcf0, hemiGround: 0x887856, hemiI: 1.20, sun: 0xffe9bd, sunI: 2.20, fillI: 0.50, exp: 1.10, cloud: 0xfbeed2 },
-  { h: 17.5, stops: [0x3f5f96, 0x6d84b4, 0xa8a9c0, 0xe5b98c, 0xfca95e, 0xe07f45, 0x7d5a40], fog: 0xd9b490, hemiSky: 0x93a3c4, hemiGround: 0x6b5844, hemiI: 0.85, sun: 0xff9448, sunI: 1.70, fillI: 0.30, exp: 1.05, cloud: 0xf9bd84 },
-  { h: 19.0, stops: [0x131c3d, 0x1d2a52, 0x2c3a63, 0x4a4470, 0x6e5570, 0x4c3a52, 0x241c33], fog: 0x2c2a44, hemiSky: 0x46547c, hemiGround: 0x23222b, hemiI: 0.45, sun: 0x7d90c4, sunI: 0.50, fillI: 0.12, exp: 0.98, cloud: 0x7d84a8 },
-  { h: 21.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
-  { h: 24.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c },
+  { h: 0.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c, night: 1 },
+  { h: 5.0,  stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c, night: 1 },
+  { h: 6.5,  stops: [0x2e4a75, 0x5d7ba6, 0x93a9c4, 0xd9b48f, 0xf7c489, 0xe8a56b, 0x8a6a52], fog: 0xcbb59a, hemiSky: 0x8fa5c8, hemiGround: 0x5f5344, hemiI: 0.80, sun: 0xffb066, sunI: 1.60, fillI: 0.30, exp: 1.05, cloud: 0xf7cfa0, night: 0.2 },
+  { h: 8.5,  stops: [0x4f83cc, 0x7cabdf, 0xaecdf0, 0xe8eedd, 0xf7ead0, 0xdccba6, 0xb3a284], fog: 0xd5e2ee, hemiSky: 0xc4daf2, hemiGround: 0x867a5f, hemiI: 1.15, sun: 0xffedca, sunI: 2.10, fillI: 0.50, exp: 1.10, cloud: 0xfdf0da, night: 0 },
+  { h: 12.0, stops: [0x5f96d6, 0x8fb8e8, 0xc3d9f0, 0xeef0e6, 0xf7ead0, 0xd9c9a8, 0xb8a888], fog: 0xdfe8f2, hemiSky: 0xcfe0f4, hemiGround: 0x8a7a5f, hemiI: 1.25, sun: 0xfff1da, sunI: 2.30, fillI: 0.55, exp: 1.10, cloud: 0xfff4e2, night: 0 },
+  { h: 16.5, stops: [0x558fd2, 0x86b0e2, 0xbdd5ee, 0xeee9d8, 0xf9e3bc, 0xdcbd8f, 0xab9574], fog: 0xdde0d8, hemiSky: 0xc9dcf0, hemiGround: 0x887856, hemiI: 1.20, sun: 0xffe9bd, sunI: 2.20, fillI: 0.50, exp: 1.10, cloud: 0xfbeed2, night: 0 },
+  { h: 17.5, stops: [0x3f5f96, 0x6d84b4, 0xa8a9c0, 0xe5b98c, 0xfca95e, 0xe07f45, 0x7d5a40], fog: 0xd9b490, hemiSky: 0x93a3c4, hemiGround: 0x6b5844, hemiI: 0.85, sun: 0xff9448, sunI: 1.70, fillI: 0.30, exp: 1.05, cloud: 0xf9bd84, night: 0.15 },
+  { h: 19.0, stops: [0x131c3d, 0x1d2a52, 0x2c3a63, 0x4a4470, 0x6e5570, 0x4c3a52, 0x241c33], fog: 0x2c2a44, hemiSky: 0x46547c, hemiGround: 0x23222b, hemiI: 0.45, sun: 0x7d90c4, sunI: 0.50, fillI: 0.12, exp: 0.98, cloud: 0x7d84a8, night: 0.55 },
+  { h: 21.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c, night: 1 },
+  { h: 24.0, stops: [0x05081a, 0x0a1130, 0x111d42, 0x18284e, 0x1d2f57, 0x152240, 0x0c1428], fog: 0x0e1626, hemiSky: 0x35486f, hemiGround: 0x191b21, hemiI: 0.35, sun: 0x93a7d4, sunI: 0.35, fillI: 0.08, exp: 0.95, cloud: 0x59688c, night: 1 },
 ];
 for (const k of SKY_KEYS) {
   k.stopsC = k.stops.map(x => new THREE.Color(x));
@@ -414,13 +416,16 @@ function skyStateAt(hours) {
     fog: mix(a.fogC, b.fogC), hemiSky: mix(a.hemiSkyC, b.hemiSkyC),
     hemiGround: mix(a.hemiGroundC, b.hemiGroundC), hemiI: num(a.hemiI, b.hemiI),
     sun: mix(a.sunC, b.sunC), sunI: num(a.sunI, b.sunI), fillI: num(a.fillI, b.fillI),
-    exp: num(a.exp, b.exp), cloud: mix(a.cloudC, b.cloudC),
+    exp: num(a.exp, b.exp), cloud: mix(a.cloudC, b.cloudC), night: num(a.night, b.night),
   };
 }
 function skyNowHours() {
   const d = new Date();
   return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
 }
+/* Night-sky objects (v0.2.16) are created just below applySky; the
+   nulls let applySky run safely in any order. */
+let starPoints = null, moonSprite = null;
 function applySky(hours) {
   const s = skyStateAt(hours);
   paintSky(s.stops);
@@ -430,7 +435,130 @@ function applySky(hours) {
   fill.intensity = s.fillI;
   renderer.toneMappingExposure = s.exp;
   for (const c of clouds) c.material.color.copy(s.cloud);
+  if (starPoints) {
+    starPoints.material.opacity = s.night * 0.9;
+    starPoints.visible = s.night > 0.01;
+  }
+  if (moonSprite) refreshMoon(s.night);
 }
+/* ================= Night sky: stars + real-phase moon (v0.2.16) =================
+   Anita: "Trời đêm cho thấy sao và trăng (ngày rằm)" — and the moon
+   must follow the REAL lunar phase: full only near rằm (lunar day
+   ~15), crescent otherwise, gone at the new moon. Stars and moon are
+   driven by the keyframes' lerped `night` (see applySky): stars fade
+   to night x 0.9, the moon to night x a phase-visibility factor.
+   Both are fog:false, depthWrite:false and sit inside the dome
+   (stars r=300, moon ~263 away), so the mountain still occludes them
+   by depth test and the transparent pass draws the (nearer) cloud
+   sprites over them. +2 draw calls total. The moon lights nothing —
+   the night keyframe lighting already exists. */
+const SYNODIC = 29.530588853;                 // days per lunar cycle
+const NEW_MOON_MS = Date.UTC(2000, 0, 6, 18, 14); // a known new moon
+let vnNowMs = null;                           // harness clock override
+function nowMs() { return vnNowMs !== null ? vnNowMs : Date.now(); }
+function moonPhaseAt(ms) {
+  let age = ((ms - NEW_MOON_MS) / 86400000) % SYNODIC;
+  if (age < 0) age += SYNODIC;
+  const illum = (1 - Math.cos(2 * Math.PI * age / SYNODIC)) / 2;
+  const waxing = age < SYNODIC / 2;
+  return { age, illum, waxing, litSide: waxing ? 'right' : 'left' };
+}
+
+/* Moon texture: 256px canvas — soft glow, a faint earthshine disc,
+   then the lit region: the lit-side semicircle closed by the
+   terminator ellipse (rx = |cos(phase angle)| x R; the return sweep
+   bulges toward the lit side for a crescent, away for a gibbous;
+   waxing is lit on the right, waning on the left). Repainted only
+   when the moon's age crosses a 0.1-day boundary (refreshMoon). */
+const moonCanvas = document.createElement('canvas');
+moonCanvas.width = moonCanvas.height = 256;
+const moonCtx = moonCanvas.getContext('2d');
+const moonTex = new THREE.CanvasTexture(moonCanvas);
+moonTex.colorSpace = THREE.SRGBColorSpace;
+let moonPaintedBucket = -1;
+function paintMoon(ph) {
+  const g = moonCtx, cx = 128, cy = 128, R = 62;
+  g.clearRect(0, 0, 256, 256);
+  const glow = g.createRadialGradient(cx, cy, R * 0.4, cx, cy, 128);
+  glow.addColorStop(0, 'rgba(214,228,255,0.80)');
+  glow.addColorStop(0.35, 'rgba(190,208,248,0.32)');
+  glow.addColorStop(1, 'rgba(180,200,245,0)');
+  g.fillStyle = glow; g.fillRect(0, 0, 256, 256);
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(198,212,238,0.13)'; g.fill();   // earthshine disc
+  const cosT = Math.cos(2 * Math.PI * ph.age / SYNODIC);
+  const rx = Math.abs(cosT) * R;
+  const lit = g.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.1, cx, cy, R);
+  lit.addColorStop(0, '#ffffff'); lit.addColorStop(0.75, '#eef2fd'); lit.addColorStop(1, '#ccd9f0');
+  g.beginPath();
+  if (ph.waxing) {
+    g.arc(cx, cy, R, -Math.PI / 2, Math.PI / 2, false);
+    g.ellipse(cx, cy, rx, R, 0, Math.PI / 2, cosT > 0 ? -Math.PI / 2 : Math.PI * 1.5, cosT > 0);
+  } else {
+    g.arc(cx, cy, R, Math.PI / 2, Math.PI * 1.5, false);
+    g.ellipse(cx, cy, rx, R, 0, Math.PI * 1.5, cosT > 0 ? Math.PI * 2.5 : Math.PI / 2, cosT < 0);
+  }
+  g.closePath();
+  g.fillStyle = lit; g.fill();
+  moonTex.needsUpdate = true;
+}
+function refreshMoon(night) {
+  const ph = moonPhaseAt(nowMs());
+  const bucket = Math.floor(ph.age * 10);
+  if (bucket !== moonPaintedBucket) { moonPaintedBucket = bucket; paintMoon(ph); }
+  /* Near the new moon (illum -> 0) the moon vanishes entirely; the
+     factor reaches 1 by illum 0.3, so quarters and rằm are full
+     strength. Tonight (2026-11-10, age ~0.4-0.8, illum ~0) the sky
+     gets stars only. */
+  const vis = smooth01(Math.min(1, ph.illum / 0.3));
+  moonSprite.material.opacity = night * vis;
+  moonSprite.visible = moonSprite.material.opacity > 0.01;
+}
+{
+  moonSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: moonTex, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+  /* Over the chasm to the east-north-east, inside the dome. It sits
+     in the pilgrimage vista — the launch looking across the bridge
+     to the Buddha — upper-left in BOTH landscape and portrait
+     (projected NDC about (-0.18, 0.61) / (-0.61, 0.61); the lit disc
+     is about half the 36-unit sprite, ~4 degrees across — reads as
+     a moon, not a dot), and stays in frame from mid-bridge. It is
+     deliberately NOT in the spawn frame: that frame is filled by
+     the summit mass (measured in the harness — the best in-frame
+     spawn ray still ends ~4 m under rock), so no far-sky body can
+     appear there; the moon shows when the view opens east. */
+  moonSprite.position.set(257, 70, -45);
+  moonSprite.scale.set(36, 36, 1);
+  scene.add(moonSprite);
+}
+{
+  const STAR_COUNT = 800, STAR_R = 300;
+  const pos = new Float32Array(STAR_COUNT * 3);
+  const col = new Float32Array(STAR_COUNT * 3);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    const y = 0.05 + 0.95 * Math.random();       // uniform on the cap
+    const az = Math.random() * Math.PI * 2;
+    const rr = Math.sqrt(Math.max(0, 1 - y * y));
+    pos[i * 3] = Math.cos(az) * rr * STAR_R;
+    pos[i * 3 + 1] = y * STAR_R;
+    pos[i * 3 + 2] = Math.sin(az) * rr * STAR_R;
+    const b = 0.35 + 0.65 * Math.random() * Math.random();
+    const t = Math.random();
+    const tint = t < 0.12 ? [1, 0.92, 0.80] : (t < 0.30 ? [0.82, 0.90, 1] : [1, 1, 1]);
+    col[i * 3] = tint[0] * b; col[i * 3 + 1] = tint[1] * b; col[i * 3 + 2] = tint[2] * b;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const starTex = radialTex(64, [[0, 'rgba(255,255,255,1)'], [0.3, 'rgba(255,255,255,0.85)'], [0.6, 'rgba(255,255,255,0.25)'], [1, 'rgba(255,255,255,0)']]);
+  starPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 1.9, sizeAttenuation: false, map: starTex, transparent: true,
+    opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexColors: true, fog: false }));
+  starPoints.frustumCulled = false;
+  scene.add(starPoints);
+}
+
 let skyLastMin = -1;
 applySky(skyNowHours());
 
@@ -1378,8 +1506,14 @@ window.__vn = {
       hemiSky: '#' + s.hemiSky.getHexString(), hemiGround: '#' + s.hemiGround.getHexString(),
       hemiI: s.hemiI, sun: '#' + s.sun.getHexString(), sunI: s.sunI,
       fillI: s.fillI, exp: s.exp, cloud: '#' + s.cloud.getHexString(),
+      night: s.night,
     };
   },
+  applySky,
+  moonPhase: (ms) => moonPhaseAt(ms),
+  setNow: (ms) => { vnNowMs = ms; },
+  stars: () => starPoints, moon: () => moonSprite,
+  moonBucket: () => moonPaintedBucket,
   get faceTarget() { return faceTarget; },
   setWalk: (x, z) => { setWalkTarget(x, z); },
   pilgrimage: startPilgrimage,
