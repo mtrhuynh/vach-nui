@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.11">
-<title>Vách Núi — Cảnh vách núi 0.2.11</title>
+<meta name="vn-ver" content="0.2.12">
+<title>Vách Núi — Cảnh vách núi 0.2.12</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -13,6 +13,7 @@
   #loading .spin { font-size:44px; animation:sp 1.6s linear infinite; }
   @keyframes sp { to { transform:rotate(360deg); } }
   #bootTrace { margin-top:10px; font-size:11px; color:#cbb27f; max-width:82vw; word-break:break-word; text-align:center; }
+  #loadPct { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:30; background:rgba(36,23,8,.78); color:#e8d9b0; font-size:13.5px; padding:6px 14px; border-radius:999px; pointer-events:none; transition:opacity .45s ease; white-space:nowrap; }
   #hint { position:fixed; left:10px; bottom:10px; z-index:10; color:#f3e6c8; font-size:12.5px; line-height:1.5; text-shadow:0 1px 3px rgba(0,0,0,.85), 0 0 8px rgba(0,0,0,.6); pointer-events:none; }
   #ver { position:fixed; right:10px; bottom:10px; z-index:10; color:#e8d9b0; opacity:.75; font-size:11.5px; text-shadow:0 1px 3px rgba(0,0,0,.85); pointer-events:none; }
   #bowChip { position:fixed; z-index:12; transform:translate(-50%,-100%); color:#ffe9b8; font-size:16.5px; font-weight:600; cursor:pointer; user-select:none; -webkit-user-select:none; text-shadow:0 1px 4px rgba(0,0,0,.9), 0 0 10px rgba(0,0,0,.65); display:none; padding:10px 14px; }
@@ -21,15 +22,18 @@
 <body>
 <div id="app"></div>
 <div id="loading"><div class="spin">🪷</div><div>Đang dựng vách núi…</div><div id="bootTrace"></div></div>
+<div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.11</div>
+<div id="ver">Vách Núi · v0.2.12</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
    loading screen — after 25 s show a reload hint on the loading card itself. */
 setTimeout(function () {
   var ld = document.getElementById('loading');
+  var lp = document.getElementById('loadPct');
+  if (lp) lp.remove();
   if (ld) ld.innerHTML = '<div class="spin">🪷</div><div>Đang tải lâu hơn thường lệ…<br><button onclick="location.reload()" style="margin-top:12px;padding:10px 22px;border-radius:999px;border:0;background:#c9a45c;color:#241708;font-weight:700;font-size:15px">↻ Tải lại trang</button></div>';
 }, 25000);
 </script>
@@ -66,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.11';
+const VN_VER = '0.2.12';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -327,6 +331,28 @@ const MAT = {
   chain:  new THREE.LineBasicMaterial({ color: 0x2c2c30 }),
 };
 
+/* ================= Loading progress (v0.2.12) =================
+   One shared LoadingManager drives the small "Đang tải cảnh… NN%"
+   pill. It updates per finished item, and hides when every item has
+   ended — an item that errors still ends, so onLoad fires and the
+   pill goes away even on a failed model. A hard timeout removes it
+   regardless; it never blocks input (pointer-events: none). */
+const loadPctEl = document.getElementById('loadPct');
+let loadPctDone = false;
+function hideLoadPct() {
+  if (loadPctDone) return; loadPctDone = true;
+  if (!loadPctEl) return;
+  loadPctEl.style.opacity = '0';
+  setTimeout(() => { if (loadPctEl) loadPctEl.remove(); }, 500);
+}
+const loadMgr = new THREE.LoadingManager();
+loadMgr.onProgress = (url, loaded, total) => {
+  if (loadPctEl && !loadPctDone && total > 0)
+    loadPctEl.textContent = 'Đang tải cảnh… ' + Math.round(100 * loaded / total) + '%';
+};
+loadMgr.onLoad = hideLoadPct;
+setTimeout(hideLoadPct, 120000);
+
 /* ================= Island build ================= */
 function addMesh(geo, mat, x, y, z, parent) {
   const m = new THREE.Mesh(geo, mat);
@@ -338,20 +364,26 @@ function addMesh(geo, mat, x, y, z, parent) {
 { // the real mountain: 'rocky mountain' (lotmv5), compressed for the web.
   // Scale x40 (island 40 m wide); apron band model y 0.203 -> world y 0, so
   // the diorama bottom sits ~8.1 m below the apron, inside the cloud sea.
-  new GLTFLoader().load('models/mountain.glb', (gltf) => {
+  // v0.2.12: the model is fetched/parsed ONCE — the Buddha rock further
+  // down is a clone(true) of this same scene (shared geometry and
+  // materials, its own transform), not a second 6 MB download.
+  new GLTFLoader(loadMgr).load('models/mountain.glb', (gltf) => {
     const g = gltf.scene;
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     g.scale.setScalar(40);
     g.position.set(0, -8.12, 0);
     scene.add(g);
-  });
+    const mini = g.clone(true);
+    mini.scale.setScalar(3.0);
+    buddhaRock.add(mini);
+  }, undefined, () => {});
 }
 { // the real stone rope bridge + end rock point
   bridgeGroup = new THREE.Group();
   bridgeGroup.position.set(BRIDGE.cx, BRIDGE.baseY, BRIDGE.cz);
   bridgeGroup.rotation.z = BRIDGE.tilt;
   scene.add(bridgeGroup);
-  new GLTFLoader().load('models/bridge.glb', (gltf) => {
+  new GLTFLoader(loadMgr).load('models/bridge.glb', (gltf) => {
     const m = gltf.scene;
     m.scale.set(BRIDGE.scaleX, BRIDGE.scaleY, BRIDGE.scaleY); // X stretched x1.18 (v0.2.9); Y/Z stay 8.2
     m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -377,12 +409,10 @@ function addMesh(geo, mat, x, y, z, parent) {
   buddhaRock.position.set(BUDDHA_ROCK_POSE.x, BUDDHA_ROCK_POSE.y, BUDDHA_ROCK_POSE.z);
   buddhaRock.rotation.y = BUDDHA_ROCK_POSE.rotY;
   scene.add(buddhaRock);
-  new GLTFLoader().load('models/mountain.glb', (gltf) => {
-    const g = gltf.scene;
-    g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    g.scale.setScalar(3.0);
-    buddhaRock.add(g);
-  }, undefined, () => {});
+  // The rock mesh itself arrives with the single mountain load above
+  // (v0.2.12): that callback clones the loaded scene into this group
+  // at scale 3.0. buddhaRock is assigned during module evaluation,
+  // before any load can complete, so the clone always finds it ready.
 }
 { // real Buddha statue at the bridge end, facing back west (-X) toward the bridge
   // v0.2.11: x1.5 (1.5 m tall), moved to BUDDHA_POS (back-right corner
@@ -394,7 +424,7 @@ function addMesh(geo, mat, x, y, z, parent) {
   b.position.set(BUDDHA_POS.x, buddhaBaseY === null ? END_DISC.y : buddhaBaseY, BUDDHA_POS.z);
   b.rotation.y = -Math.PI / 2;
   scene.add(b);
-  new GLTFLoader().load('models/buddha.glb', (gltf) => {
+  new GLTFLoader(loadMgr).load('models/buddha.glb', (gltf) => {
     const m = gltf.scene;
     const bb = new THREE.Box3().setFromObject(m);
     const sz = new THREE.Vector3(); bb.getSize(sz);
@@ -427,7 +457,7 @@ const CANDLE_FLAME = { x: 0.054, y: 0.803, z: -0.121 };
 const CANDLE_FLAME_HEADING = Math.atan2(CANDLE_FLAME.x, CANDLE_FLAME.z);
 let candleProto = null;
 const pendingCandleLamps = [];
-new GLTFLoader().load('models/candles.glb', (gltf) => {
+new GLTFLoader(loadMgr).load('models/candles.glb', (gltf) => {
   const raw = gltf.scene;
   const bb = new THREE.Box3().setFromObject(raw);
   const sz = new THREE.Vector3(); bb.getSize(sz);
@@ -573,7 +603,7 @@ scene.add(player);
 })();
 
 let monkLoaded = false;
-new GLTFLoader().load('models/monk2.glb', (gltf) => {
+new GLTFLoader(loadMgr).load('models/monk2.glb', (gltf) => {
   const S = 1.15 / 1.957;
   const inner = new THREE.Group();
   inner.scale.setScalar(S);
