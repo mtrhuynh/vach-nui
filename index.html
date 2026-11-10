@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.20">
-<title>Vách Núi — Cảnh vách núi 0.2.20</title>
+<meta name="vn-ver" content="0.2.21">
+<title>Vách Núi — Cảnh vách núi 0.2.21</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.20</div>
+<div id="ver">Vách Núi · v0.2.21</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.20';
+const VN_VER = '0.2.21';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -830,7 +830,7 @@ function candleLamp(x, yFallback, z, width, aimHeading, exactY) {
         pierced the tray at the old seat (-0.130).
    L5/L6 already cleared the audit. Post-fix audit: no
    re-seated tray is pierced (vn-harness5/audit_trays.py).
-   v0.2.20 — L0 (Anita chose SHRINK the cluster so it nests in
+   v0.2.21 — L0 (Anita chose SHRINK the cluster so it nests in
    the cup): the 1.1 m tray could never nest in a cup of petal
    radius 0.82 (audit: pierced -0.35, and perched/outside seats
    floated 0.43/0.32). A dense rock-field search over centre x
@@ -841,7 +841,7 @@ function candleLamp(x, yFallback, z, width, aimHeading, exactY) {
    disc rock min) 0.149. The FLOWER (blocker centre + r 0.82)
    does NOT move. */
 const LOTUS_SITES = [
-  { x: -1.08, z: -4.87, y: 13.51, tx: -0.96, tz: -4.79, w: 0.65, r: 0.82 }, // L0 giant, by the launch terrace (tray shrunk, v0.2.20)
+  { x: -1.08, z: -4.87, y: 13.51, tx: -0.96, tz: -4.79, w: 0.65, r: 0.82 }, // L0 giant, by the launch terrace (tray shrunk, v0.2.21)
   { x: 7.78, z: 14.22, y: -0.51, w: 0.5, r: 0.90 },    // L1 (tray raised, v0.2.19)
   { x: -14.08, z: 1.43, y: 2.41, w: 0.5, r: 0.86 },    // L2 (tray raised, v0.2.19)
   { x: 4.98, z: 7.84, y: 3.28, tx: 5.23, tz: 7.99, w: 0.5, r: 0.66 },      // L3 (shelf under an overhang; tray dodges the centre spike, v0.2.19)
@@ -1015,7 +1015,7 @@ scene.add(player);
 })();
 
 let monkLoaded = false;
-new GLTFLoader(loadMgr).load('models/monk2.glb?v=2', (gltf) => {
+new GLTFLoader(loadMgr).load('models/monk2.glb?v=3', (gltf) => {
   const S = 1.15 / 1.957;
   const inner = new THREE.Group();
   inner.scale.setScalar(S);
