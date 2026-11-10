@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.28">
+<meta name="vn-ver" content="0.2.30">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d1526">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Vách Núi — Cảnh vách núi 0.2.28</title>
+<title>Vách Núi — Cảnh vách núi 0.2.30</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -69,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.28';
+const VN_VER = '0.2.30';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -507,6 +507,9 @@ let starPoints = null, moonSprite = null;
 let backdrop = null;   // v0.2.22 far ridge ring, built with the night-sky block
 let seaBandArr = null; // v0.2.27: the cloud-sea band, for applySky's night opacity lift
 let burnerSmoke = null;   // v0.2.24: the island burner's animated smoke wisps
+let mistArr = null;    // v0.2.30: drifting mist sprites, tinted by applySky
+let fireflyArr = null; // v0.2.30: firefly sprites; gate below is applySky's
+let fireflyGate = 0;   // v0.2.30: firefly night gate (0 at noon, 1 at night)
 function applySky(hours) {
   const s = skyStateAt(hours);
   paintSky(s.stops);
@@ -545,6 +548,19 @@ function applySky(hours) {
      brighter island. Noon (night = 0) is the build opacity exactly. */
   if (seaBandArr) for (const sp of seaBandArr) sp.material.opacity = Math.min(1, sp.userData.baseOp * (1 + 0.35 * s.night));
   if (burnerSmoke) for (const m of burnerSmoke.mats) m.color.copy(s.cloud);   // v0.2.24: wisps ride the sky tint like the clouds
+  /* v0.2.30 ambience: the mist rides the keyframes' cloud colour
+     (soft blue-grey at night), and its presence is a whisper at
+     noon (factor ~0.33), grows through dawn/dusk on a warm-sun
+     term (the golden keyframes' sun runs r >> b), and deepens at
+     night on the `night` channel (0.75). Per-sprite baseOp is a
+     whisper (0.05..0.105), so even stacked sprites never white
+     out the path or the statue from the pilgrim camera. */
+  if (mistArr) {
+    const tw = Math.max(0, Math.min(1, (s.sun.r - s.sun.b - 0.10) * 1.6));
+    const mk = Math.min(1, 0.30 + 0.45 * s.night + 0.35 * tw);
+    for (const sp of mistArr) { sp.material.color.copy(s.cloud); sp.material.opacity = sp.userData.baseOp * mk; }
+  }
+  fireflyGate = s.night;   // v0.2.30: fireflies are night-gated — exactly 0 at noon
   if (starPoints) {
     starPoints.material.opacity = s.night * 0.9;
     starPoints.visible = s.night > 0.01;
@@ -795,6 +811,64 @@ for (let i = 0; i < 42; i++) {
   seaBand.push(sp); clouds.push(sp); scene.add(sp);
 }
 seaBandArr = seaBand;
+
+/* ================= Ambience: drifting mist + fireflies (v0.2.30) =====
+   Anita: "cho thêm khói sương bay xung quanh đi, thêm đom đóm bay
+   lập lòe nữa". Pure decoration: no blockers, no lights, no route
+   or ground changes, and neither set joins `clouds` (the v0.2.22
+   sea counts stay exact). Every sprite's raycast is neutralised —
+   the tap handler only ever raycasts the Buddha group, and this
+   keeps it structurally impossible for a wisp or a firefly to
+   swallow a tap. Mist: 17 large soft cloud-texture sprites ringing
+   the chasm and the island, most riding BELOW deck level so they
+   drift through the gorge and around the island's skirts, every
+   fourth hanging low over the bridge; they slide sideways at
+   0.10..0.31 m/s (barely moving, dreamy — not weather) and wrap
+   inside a box around the chasm. Fireflies: 48 tiny warm pinpricks
+   (0.13..0.27 m, additive) anchored in the dark corners — island
+   ledges, both bridge ends, the deck's shadow sides, the mouth and
+   the summit rocks — each wandering slowly around its anchor and
+   flickering in animate; applySky's night gate keeps them at
+   exactly 0 by day. */
+const mistSprites = [];
+for (let i = 0; i < 17; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xfff4e2, transparent: true, opacity: 0, depthWrite: false }));
+  const overDeck = i % 4 === 3;
+  const ang = (i / 17) * Math.PI * 2 + (i % 5) * 0.37;
+  if (overDeck) sp.position.set(4 + ((i * 29) % 60) / 10, 13.9 + ((i * 13) % 10) / 10, -6 + ((i % 3) - 1) * 2.6);
+  else sp.position.set(10.5 + Math.cos(ang) * (5 + ((i * 31) % 55) / 10), 7.5 + ((i * 37) % 50) / 10, -6 + Math.sin(ang) * (4 + ((i * 41) % 50) / 10));
+  const s = 8 + ((i * 43) % 120) / 10;                  // 8..20 m across
+  sp.scale.set(s, s * 0.38, 1);
+  sp.userData.speed = 0.10 + ((i * 17) % 22) / 100;     // 0.10..0.31 m/s
+  sp.userData.baseOp = 0.05 + ((i * 23) % 55) / 1000;  // 0.050..0.104
+  sp.userData.noRay = true;
+  sp.raycast = () => {};
+  mistSprites.push(sp); scene.add(sp);
+}
+mistArr = mistSprites;
+
+const FIREFLY_ANCHORS = [
+  [11.0, 13.6, -4.8], [12.3, 13.9, -6.7],   // island ledges
+  [10.6, 13.7, -6.9], [1.7, 13.7, -6.3],    // bridge ends
+  [5.2, 13.3, -7.4], [6.8, 13.3, -4.7],     // mid-bridge shadow sides
+  [2.0, 13.6, -6.9], [-1.1, 13.9, -5.1],    // mouth + summit rocks
+];
+const fireflySprites = [];
+for (let i = 0; i < 48; i++) {
+  const a = FIREFLY_ANCHORS[i % FIREFLY_ANCHORS.length];
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xffca6a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sp.userData.anchor = a;
+  sp.userData.ph = (i * 2.399) % (Math.PI * 2);        // golden-angle phase spread
+  sp.userData.ph2 = (i * 1.707) % (Math.PI * 2);
+  sp.userData.wr = 0.5 + ((i * 29) % 90) / 100;        // wander radius 0.5..1.39 m
+  const sz = 0.13 + ((i * 31) % 15) / 100;             // 0.13..0.27 m pinpricks
+  sp.scale.set(sz, sz, 1);
+  sp.position.set(a[0], a[1], a[2]);
+  sp.userData.noRay = true;
+  sp.raycast = () => {};
+  fireflySprites.push(sp); scene.add(sp);
+}
+fireflyArr = fireflySprites;
 
 let skyLastMin = -1;
 applySky(skyNowHours());
@@ -1234,9 +1308,18 @@ scene.add(player);
     const d = JSON.parse(raw);
     if (!d || typeof d.x !== 'number' || typeof d.z !== 'number' || typeof d.t !== 'number') return;
     if (Date.now() - d.t > 2 * 3600 * 1000) return;
-    const gy = groundAt(d.x, d.z);
-    if (gy === null) return;
-    player.position.set(d.x, gy, d.z);
+    /* v0.2.30: validate the saved spot the way the in-game rescue
+       does — a snapshot taken somewhere the ground model no longer
+       vouches for (null ground, e.g. the disowned under-bridge
+       bench, or inside a blocker disc) snaps to the nearest
+       walkable point instead of resurrecting the stuck spot; only
+       a spot with nothing walkable within 7 m falls back to spawn.
+       For every healthy save nearestWalkable returns the point
+       itself, so normal resumes are byte-identical. */
+    const fix = nearestWalkable(d.x, d.z);
+    if (!fix) return;
+    const gy = groundAt(fix.x, fix.z);
+    player.position.set(fix.x, gy, fix.z);
     if (typeof d.ry === 'number') player.rotation.y = d.ry;
     lastPos.copy(player.position);
     if (typeof d.cx === 'number' && typeof d.cy === 'number' && typeof d.cz === 'number') {
@@ -1253,7 +1336,7 @@ scene.add(player);
       if (len > 1e-6 && Math.abs(cl - len) > 1e-9) camera.position.copy(controls.target).addScaledVector(off, cl / len);
       clampCamTarget();
     }
-    sessionRestored = { x: d.x, z: d.z, ry: player.rotation.y };
+    sessionRestored = { x: fix.x, z: fix.z, ry: player.rotation.y };
   } catch (e) {}
 })();
 
@@ -1349,7 +1432,24 @@ function groundAt(x, z) {
   if (Math.hypot(x - END_DISC.x, z - END_DISC.z) <= END_DISC.r) return END_DISC.y;
   if (x >= BRIDGE.x0 && x <= BRIDGE.groundX1 && Math.abs(z - BRIDGE.cz) <= BRIDGE.hw) return deckYAt(x);
   if (Math.hypot(x - MOUTH_DISC.x, z - MOUTH_DISC.z) <= MOUTH_DISC.r) return MOUTH_DISC.y;
-  return sampleGround(x, z);
+  const s = sampleGround(x, z);
+  /* v0.2.30 (the bench trap, Anita's stuck monk 2026-11-10): the
+     heightmap bench at y ~5 inside the deck's east shadow (x
+     10.40..11.15, z -6.35..-4.70) runs UNDER the deck end and the
+     island disc, ~8.3 m below both. It is reachable by contouring
+     down the mountain's north-east slope, but its only ground exits
+     back are a one-cell bilinear neck and the long way around the
+     mountain: from inside it a tap to the deck stalls at the wall
+     base (probe29f: displacement 0.51, ending pressed at
+     (10.42,-5.81)) and a tap to BOW_SPOT does not move at all
+     (0.01). The bench is bare slope with no content, so the ground
+     model disowns it — the visual mesh is untouched, the step gate
+     now refuses entry, and the auto-rescue / restore validation
+     below lift anyone already saved there onto the disc. The
+     built-geometry branches above run first, so the deck strip,
+     the discs and the pilgrimage route never see this guard. */
+  if (s !== null && s < 11 && x >= 10.40 && x <= 11.15 && z >= -6.35 && z <= -4.70) return null;
+  return s;
 }
 /* Rise gate: refuse a move whose ground rise exceeds the gate (axis-slide
    fallback lives in movePlayer). This is what stops cliff-climbing: the
@@ -1408,11 +1508,14 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   }
   setWalkTarget(tx, tz);
 });
-/* v0.2.28: keyboard camera distance (Anita): Ctrl+ pulls the camera
-   toward the monk, Ctrl- pushes it back — same 3..12 range and the same
-   offset-rescale the resume clamp uses, so the wheel and the keys drive
-   one distance. preventDefault keeps the browser's own page zoom out of
-   the installed app window. Steps are reciprocal (x0.8 / x1.25). */
+/* Keyboard camera distance (v0.2.28 as Ctrl+ / Ctrl-; v0.2.30
+   REBOUND by Anita: Ctrl collides with browser/app shortcuts in her
+   environment, so the binding is now hold-C-then-+ / - — hold the C
+   key and tap + to pull the camera toward the monk, - to push it
+   back. Bare + / - with no modifier held do the same (nothing else
+   in the scene uses those keys). Same 3..12 range and the same
+   offset-rescale the resume clamp uses, so the wheel and the keys
+   drive one distance. Steps are reciprocal (x0.8 / x1.25). */
 function zoomCam(f) {
   const off = camera.position.clone().sub(controls.target);
   const len = off.length();
@@ -1420,16 +1523,19 @@ function zoomCam(f) {
   const cl = Math.min(controls.maxDistance, Math.max(controls.minDistance, len * f));
   camera.position.copy(controls.target).addScaledVector(off, cl / len);
 }
+let cHeld = false;
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-  if (e.ctrlKey && (e.key === '+' || e.key === '=' || e.key === 'Add')) { zoomCam(0.8); e.preventDefault(); return; }
-  if (e.ctrlKey && (e.key === '-' || e.key === '_' || e.key === 'Subtract')) { zoomCam(1.25); e.preventDefault(); return; }
+  if (e.key === 'c' || e.key === 'C') cHeld = true;
+  if (e.key === '+' || e.key === '=' || e.key === 'Add') { zoomCam(0.8); e.preventDefault(); return; }
+  if (e.key === '-' || e.key === '_' || e.key === 'Subtract') { zoomCam(1.25); e.preventDefault(); return; }
   if (e.key === 'ArrowUp') { keys.fwd = true; walkTarget = null; journey = null; cancelPilgrim(); e.preventDefault(); }
   else if (e.key === 'ArrowLeft') keys.left = true;
   else if (e.key === 'ArrowRight') keys.right = true;
   else if (e.key === 'ArrowDown') { faceTarget = player.rotation.y + Math.PI; e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => {
+  if (e.key === 'c' || e.key === 'C') cHeld = false;
   if (e.key === 'ArrowUp') keys.fwd = false;
   else if (e.key === 'ArrowLeft') keys.left = false;
   else if (e.key === 'ArrowRight') keys.right = false;
@@ -1512,6 +1618,35 @@ function rideGround(dt) {
     if (Math.abs(dy) <= 0.45) player.position.y = gy;
     else player.position.y += dy * Math.min(1, 14 * dt);
   }
+}
+/* Auto-rescue (v0.2.30, Anita's stuck monk 2026-11-10 23:50): over
+   null ground rideGround freezes y and movePlayer gates every step
+   from that frozen height, so a strand over a ground-model hole is
+   forever — arrows and taps alike just refuse. If the ground under
+   the avatar is null, or she floats > 0.6 m above it, continuously
+   for ~1 s outside rituals, relocate her to the nearest walkable
+   point (position and ground height set together; stale walk orders
+   dropped; the camera follows by the normal target-delta rule). The
+   1 s persistence is what keeps it honest: rideGround's lerp closes
+   any legitimate step-down gap in a few frames, so a full second of
+   float can only be a real strand. Rituals (animLocked) reset the
+   timer — a bow never triggers a rescue. */
+let floatT = 0;
+function updateRescue(dt) {
+  if (animLocked()) { floatT = 0; return; }
+  const gy = groundAt(player.position.x, player.position.z);
+  if (gy === null || player.position.y - gy > 0.6) {
+    floatT += dt;
+    if (floatT >= 1) {
+      floatT = 0;
+      const snap = nearestWalkable(player.position.x, player.position.z);
+      if (snap) {
+        player.position.set(snap.x, groundAt(snap.x, snap.z), snap.z);
+        walkTarget = null; journey = null; cancelPilgrim();
+        lastPos.copy(player.position);
+      }
+    }
+  } else floatT = 0;
 }
 function animLocked() { return animState === 'bow' || animState === 'xa' || animState === 'recover'; }
 function startXa(holdSec) {
@@ -1817,10 +1952,30 @@ function animate() {
   if (t - vnSaveT >= 1) { vnSaveT = t; saveSession(); }
   if (!animLocked()) movePlayer(dt);
   rideGround(dt);
+  updateRescue(dt);
   updateAnim(dt, t);
   for (const c of clouds) {
     c.position.x += c.userData.speed * dt;
     if (c.position.x > 115) c.position.x = -115;
+  }
+  /* Mist drift (v0.2.30): the slow sideways slide, wrapping inside
+     the chasm box — dreamy, never weather. */
+  if (mistArr) for (const sp of mistArr) {
+    sp.position.x += sp.userData.speed * dt;
+    if (sp.position.x > 34) sp.position.x = -22;
+  }
+  /* Fireflies (v0.2.30): each wanders slowly around its anchor and
+     flickers "lập lòe" — a fast sine shimmer under a slow burst
+     gate — all scaled by applySky's night gate, so noon is dark. */
+  if (fireflyArr) for (const sp of fireflyArr) {
+    const u = sp.userData;
+    sp.position.set(
+      u.anchor[0] + Math.sin(t * 0.31 + u.ph) * u.wr,
+      u.anchor[1] + Math.sin(t * 0.43 + u.ph2) * 0.35,
+      u.anchor[2] + Math.cos(t * 0.26 + u.ph) * u.wr);
+    const flick = Math.max(0, 0.45 + 0.55 * Math.sin(t * 2.1 + u.ph * 3.0)) *
+      (0.35 + 0.65 * Math.max(0, Math.sin(t * 0.53 + u.ph2)));
+    sp.material.opacity = fireflyGate * flick * 0.85;
   }
   for (const L of lampGlows) {
     L.mat.opacity = 0.55 + 0.13 * Math.sin(t * 11 + L.phase) + 0.05 * Math.sin(t * 23 + L.phase * 2);
@@ -1887,6 +2042,7 @@ window.__vn = {
   setNow: (ms) => { vnNowMs = ms; },
   stars: () => starPoints, moon: () => moonSprite,
   backdrop: () => backdrop, seaBand: () => seaBand, clouds: () => clouds,
+  mist: () => mistArr, fireflies: () => fireflyArr, fireflyGate: () => fireflyGate,
   sun: () => sun, sunDayPos: () => SUN_DAY_POS,
   shrine: () => shrineLight, hemi: () => hemi,
   exposure: () => renderer.toneMappingExposure,
