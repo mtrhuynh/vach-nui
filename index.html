@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.19">
-<title>Vách Núi — Cảnh vách núi 0.2.19</title>
+<meta name="vn-ver" content="0.2.20">
+<title>Vách Núi — Cảnh vách núi 0.2.20</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -25,7 +25,7 @@
 <div id="loadPct">Đang tải cảnh… 0%</div>
 <div id="bowChip">🙏 Lạy</div>
 <div id="hint">Chạm mặt đất để đi • Kéo: xoay camera • Cuộn: zoom<br>Phím ← → xoay người • ↑ đi tới • ↓ quay lui</div>
-<div id="ver">Vách Núi · v0.2.19</div>
+<div id="ver">Vách Núi · v0.2.20</div>
 
 <script>
 /* Safety net: if the 3D module cannot start, never leave the visitor on the
@@ -70,7 +70,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.19';
+const VN_VER = '0.2.20';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -828,11 +828,20 @@ function candleLamp(x, yFallback, z, width, aimHeading, exactY) {
         rock pierced the tray at the old seat (-0.118).
      L7: tray (-5.36,6.23,0.60) -> (-5.16,6.03,0.49) — rim rock
         pierced the tray at the old seat (-0.130).
-   L0 is deliberately untouched (Anita is deciding its fate
-   separately); L5/L6 already cleared the audit. Post-fix audit:
-   no re-seated tray is pierced (vn-harness5/audit_trays.py). */
+   L5/L6 already cleared the audit. Post-fix audit: no
+   re-seated tray is pierced (vn-harness5/audit_trays.py).
+   v0.2.20 — L0 (Anita chose SHRINK the cluster so it nests in
+   the cup): the 1.1 m tray could never nest in a cup of petal
+   radius 0.82 (audit: pierced -0.35, and perched/outside seats
+   floated 0.43/0.32). A dense rock-field search over centre x
+   width (vn-harness5/search_l0.py) found the largest width that
+   seats clean: w 1.1 -> 0.65, tray centre nudged (+0.12,+0.08)
+   to (-0.96,-4.79), trayY 13.50 -> 13.51 — predicted audit
+   clearance +0.020 across the whole disc, float gap (trayY -
+   disc rock min) 0.149. The FLOWER (blocker centre + r 0.82)
+   does NOT move. */
 const LOTUS_SITES = [
-  { x: -1.08, z: -4.87, y: 13.50, w: 1.1, r: 0.82 },   // L0 giant, by the launch terrace
+  { x: -1.08, z: -4.87, y: 13.51, tx: -0.96, tz: -4.79, w: 0.65, r: 0.82 }, // L0 giant, by the launch terrace (tray shrunk, v0.2.20)
   { x: 7.78, z: 14.22, y: -0.51, w: 0.5, r: 0.90 },    // L1 (tray raised, v0.2.19)
   { x: -14.08, z: 1.43, y: 2.41, w: 0.5, r: 0.86 },    // L2 (tray raised, v0.2.19)
   { x: 4.98, z: 7.84, y: 3.28, tx: 5.23, tz: 7.99, w: 0.5, r: 0.66 },      // L3 (shelf under an overhang; tray dodges the centre spike, v0.2.19)
