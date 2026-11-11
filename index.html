@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="vn-ver" content="0.2.30">
+<meta name="vn-ver" content="0.2.31">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d1526">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Vách Núi — Cảnh vách núi 0.2.30</title>
+<title>Vách Núi — Cảnh vách núi 0.2.31</title>
 <style>
   html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#1a1426; font-family:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   #app { position:fixed; inset:0; }
@@ -69,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.30';
+const VN_VER = '0.2.31';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -504,7 +504,7 @@ function skyNowHours() {
 /* Night-sky objects (v0.2.16) are created just below applySky; the
    nulls let applySky run safely in any order. */
 let starPoints = null, moonSprite = null;
-let backdrop = null;   // v0.2.22 far ridge ring, built with the night-sky block
+let backdrop = null;   // v0.2.31 photo-cylinder backdrop, built with the night-sky block
 let seaBandArr = null; // v0.2.27: the cloud-sea band, for applySky's night opacity lift
 let burnerSmoke = null;   // v0.2.24: the island burner's animated smoke wisps
 let mistArr = null;    // v0.2.30: drifting mist sprites, tinted by applySky
@@ -695,108 +695,95 @@ function refreshMoon(night) {
   scene.add(starPoints);
 }
 
-/* ================= Far backdrop: ridge rings + thicker cloud sea (v0.2.22) ==
-   Anita wanted a roomier world ("không gian rộng rãi hơn") without
-   moving the fitted mountain, so the space grows OUTWARD instead:
-   three concentric rings of procedural ridge silhouettes
-   (132 / 185 / 245 m) turn the lone peak into a mountain range, and
-   a second band of cloud sprites thickens the sea it rises from.
-   Pure decoration — no gameplay system reads these objects.
-   - Ridge material: MeshBasicMaterial, fog:false. Scene fog tops
-     out at 240 m and would flatten the rings, so the tint is driven
-     MANUALLY from the same lerped sky state as everything else
-     (applyBackdrop, called from applySky — the boot paint and the
-     per-minute tick both keep it current): the far ring IS the fog
-     haze colour; nearer rings step toward the hemisphere sky colour
-     and darken, layering the depth. Noon = pale blue-grey
-     silhouettes, dawn blush, golden hour warm, dusk mauve, night
-     near-vanishing dark blue; opacity also eases off as `night`
-     rises. First frame is already correct: this block runs before
-     the boot applySky below, and the first animate frame re-applies.
-   - MOON SECTOR: the profile is clamped around the moon's azimuth
-     (the bridge axis, ~-1.5 deg): from BOTH pilgrimage eyes
-     (launch + mid-bridge) no in-sector ridge top exceeds 7 deg
-     elevation — the moon disc's lower edge rides ~11 deg up, so no
-     silhouette can ever cross it (run13 raycasts this). A few
-     peaks outside the sector rise to ~40 m.
-   - The cloud band reuses the `clouds` array (so applySky tints it
-     and animate() drifts it, free) and the shared cloud texture:
-     42 large soft sprites at y -2.5..-10.5, radius 19..104 — under
-     the chasm rim and 15+ m below the apron, so the peak rises out
-     of cloud instead of hanging over void. */
-const RIDGE_EYES = [new THREE.Vector3(-2.2, 14.8, -6), new THREE.Vector3(5.5, 14.3, -6)];
-const MOON_AZ = Math.atan2(MOON_POS.z, MOON_POS.x);
-const SECTOR_HALF = 24 * Math.PI / 180, SECTOR_BLEND = 9 * Math.PI / 180;
-const SECTOR_CAP = Math.tan(7 * Math.PI / 180);
-const RIDGE_SPECS = [
-  { dist: 245, base: 6, span: 30, opacity: 0.50, order: -3, mix: 0.00, dark: 1.00, seed: 11,
-    waves: [[2, .55, 1.7], [5, .30, 4.2], [9, .18, 2.9], [17, .10, 0.6]],
-    peaks: [[1.15, .30, .13], [2.45, .38, .10], [3.60, .26, .16], [4.90, .34, .11], [5.55, .24, .14]] },
-  { dist: 185, base: 5, span: 25, opacity: 0.65, order: -2, mix: 0.22, dark: 0.94, seed: 29,
-    waves: [[3, .50, 0.4], [6, .32, 2.2], [11, .20, 5.1], [19, .09, 3.3]],
-    peaks: [[0.90, .30, .12], [2.10, .36, .10], [3.30, .28, .15], [4.40, .33, .12], [5.50, .26, .13]] },
-  { dist: 132, base: 4, span: 21, opacity: 0.80, order: -1, mix: 0.40, dark: 0.85, seed: 47,
-    waves: [[2, .48, 5.3], [5, .34, 1.1], [10, .22, 3.7], [16, .10, 2.4]],
-    peaks: [[1.45, .28, .11], [2.80, .32, .12], [4.05, .25, .14], [5.15, .30, .10]] },
-];
-function ridgeTopAt(th, spec) {
-  let ampSum = 0, v = 0;
-  for (const [f, a, p] of spec.waves) { v += a * (0.5 + 0.5 * Math.sin(th * f + p)); ampSum += a; }
-  v /= ampSum;
-  for (const [az, h, w] of spec.peaks) {
-    const d = Math.atan2(Math.sin(th - az), Math.cos(th - az));
-    v += h * Math.exp(-(d * d) / (2 * w * w));
-  }
-  return spec.base + Math.min(1.2, v) * spec.span;
+/* ================= Far backdrop: photo cylinder (v0.2.31) ============
+   Anita sent four mountain photos and delegated the pick ("lấy 1
+   hình bao cảnh nào Cừu thấy phù hợp thì bỏ vô") — the procedural
+   ridge rings (v0.2.22) read as fake next to the real peak, so the
+   world now wraps in ONE real photograph: a Rocky Mountain sunset
+   (dark rocky ridge line, layered blue ranges behind, pink-orange
+   sky, white mist floor). It won because it carries NO sun/moon
+   disc (nothing to fight the true-phase moon), its rock palette is
+   the scene's own, and its mist bottom melts into the cloud sea.
+   - Geometry: ONE open-ended cylinder, r = 310 — outside the stars
+     (r 300) and the moon sprite (|pos| 270), so both still render
+     IN FRONT of the photo; inside the sky dome (r 320) and the far
+     plane (600). BackSide, MeshBasicMaterial, fog:false (scene fog
+     ends at 240 m and would flatten it). Opaque — it depth-writes,
+     and everything nearer (cloud sea, mist, stars, moon) passes in
+     front of it by depth, exactly as the rings did by renderOrder.
+   - Texture: backdrop.jpg, the photo cropped 12% off the bottom
+     (the featureless mist band carrying the watermark), 2048 px,
+     ~128 KB. MirroredRepeatWrapping x2 around the circle: the two
+     joins are mirror folds, so there is no hard seam anywhere.
+     Vertically the cylinder shows photo rows f 0.235..0.995 over
+     its 132 m (top edge y 69.3, bottom -62.7): the photo's pink sky
+     band sits mostly ABOVE the top edge (the dome's gradient stays
+     the sky), the ridge lines cross the chasm at ~2-8 deg, and the
+     mist floor runs under the cloud-sea sprites.
+   - MOON SECTOR (the v0.2.22 law, kept): texture offset.x puts the
+     photo's lowest stretch (u ~ 0.07, where every range line stays
+     at photo f >= 0.366) on the pilgrimage eyes' moon azimuth: from
+     both eyes the silhouette there tops out at ~6 deg, under the
+     moon disc's ~11 deg lower edge. BD_PROFILE is that silhouette,
+     measured off the photo offline (first clearly-blue terrain row
+     per column, min over each 1/64 column — conservative), and
+     backdropRidgeY(az) recomputes a world height from the SAME
+     constants the renderer samples with, so run13 can assert the
+     sector geometrically instead of trusting a screenshot.
+   - Tint: applyBackdrop multiplies the texture by a keyframe tint
+     (a basic material's only grade): noon lifts the photo toward
+     pale haze (1.06, 1.10, 1.16); the warm-sun term (the same `tw`
+     the mist rides) hands it back to near-white at dawn/golden
+     hour, when a sunset photo is already true; night lerps to a
+     dark blue (0.14, 0.20, 0.34) — the ranges stay layered
+     silhouettes whose lines remain visible (the v0.2.27 lesson)
+     instead of merging into the sky. The cloud sea below is
+     unchanged (next block) and still rides the `clouds` array. */
+const BD_RADIUS = 310, BD_H = 132, BD_CY = 3.3;      // top edge y = 69.3, bottom -62.7
+const BD_OFF_X = -0.4371;                            // photo u 0.064 -> the eyes' moon azimuth (sector centred in the low stretch)
+const BD_OFF_Y = 0.005, BD_REP_Y = 0.76;             // photo rows f 0.235..0.995 over the height
+const BD_PROFILE = [0.226, 0.315, 0.324, 0.366, 0.378, 0.427, 0.213, 0.213, 0.209, 0.208, 0.2, 0.2, 0.209, 0.212, 0.238, 0.233, 0.233, 0.24, 0.313, 0.319, 0.323, 0.316, 0.314, 0.314, 0.312, 0.314, 0.321, 0.319, 0.319, 0.327, 0.327, 0.329, 0.327, 0.327, 0.332, 0.334, 0.336, 0.336, 0.331, 0.332, 0.33, 0.322, 0.315, 0.319, 0.31, 0.304, 0.313, 0.304, 0.295, 0.309, 0.307, 0.3, 0.304, 0.315, 0.316, 0.324, 0.319, 0.324, 0.341, 0.334, 0.337, 0.483, 0.329, 0.319];
+function bdSampledU(az) {
+  /* World azimuth -> the texture column the GPU samples: cylinder
+     vertices sit at (r sin t, r cos t) with t = u * 2PI, so the
+     geometry u of azimuth az is (PI/2 - az) / 2PI; then the texture
+     transform (repeat.x 2 + offset) with the mirrored fold. */
+  let u = ((Math.PI / 2 - az) / (2 * Math.PI)) % 1; if (u < 0) u += 1;
+  let s = (u * 2 + BD_OFF_X) % 2; if (s < 0) s += 2;
+  return s > 1 ? 2 - s : s;
 }
-const backdropLayers = [];
+function backdropRidgeY(az) {
+  const f = BD_PROFILE[Math.min(63, Math.floor(bdSampledU(az) * 64))];
+  const uvY = (1 - f - BD_OFF_Y) / BD_REP_Y;         // invert the vertical map
+  return Math.min(BD_CY + BD_H / 2, (BD_CY - BD_H / 2) + uvY * BD_H);
+}
+let bdMat = null;
 {
-  const group = new THREE.Group();
-  for (const spec of RIDGE_SPECS) {
-    const SEG = 180, pos = [], idx = [];
-    for (let i = 0; i <= SEG; i++) {
-      const th = (i / SEG) * Math.PI * 2;
-      const r = spec.dist * (1 + 0.06 * Math.sin(th * 3 + spec.seed) + 0.04 * Math.sin(th * 7 + spec.seed * 2.3));
-      const x = Math.cos(th) * r, z = Math.sin(th) * r;
-      let top = ridgeTopAt(th, spec);
-      const dAz = Math.abs(Math.atan2(Math.sin(th - MOON_AZ), Math.cos(th - MOON_AZ)));
-      const capF = smooth01((SECTOR_HALF + SECTOR_BLEND - dAz) / (2 * SECTOR_BLEND));
-      if (capF > 0) {
-        let cap = Infinity;
-        for (const e of RIDGE_EYES) cap = Math.min(cap, e.y + SECTOR_CAP * Math.hypot(x - e.x, z - e.z));
-        top += (Math.min(top, cap) - top) * capF;
-      }
-      pos.push(x, -30, z, x, top, z);
-      if (i < SEG) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
-    geo.setIndex(idx);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xdfe8f2, transparent: true, opacity: spec.opacity, fog: false, depthWrite: false, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = spec.order;
-    mesh.frustumCulled = false;
-    group.add(mesh);
-    backdropLayers.push({ mesh, mat, baseOpacity: spec.opacity, mix: spec.mix, dark: spec.dark, dist: spec.dist });
+  let tex = null;
+  try { tex = new THREE.TextureLoader().load('backdrop.jpg'); }
+  catch (e) { /* headless harness: no image pipeline — fall back to a blank canvas texture */ }
+  if (!tex) {
+    const c = document.createElement('canvas'); c.width = 4; c.height = 4;
+    tex = new THREE.CanvasTexture(c);
   }
-  scene.add(group);
-  backdrop = { group, layers: backdropLayers };
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.MirroredRepeatWrapping;
+  tex.repeat.set(2, BD_REP_Y);
+  tex.offset.set(BD_OFF_X, BD_OFF_Y);
+  tex.anisotropy = 4;
+  bdMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(BD_RADIUS, BD_RADIUS, BD_H, 96, 1, true), bdMat);
+  mesh.position.y = BD_CY;
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+  backdrop = { mesh, mat: bdMat, tex, radius: BD_RADIUS, topY: BD_CY + BD_H / 2, ridgeYAt: backdropRidgeY, sampledU: bdSampledU };
 }
-/* v0.2.27: the far ridges' night floor. The v0.2.22 tints nearly
-   vanish at night (fog-dark blue at fog-dark opacity), so the
-   ridge LINES merge into the sky; applyBackdrop now lerps each
-   layer toward this slate floor by a night-gated factor that
-   steps with the layer's own mix (far 0.30 -> near 0.44), keeping
-   the depth order far < mid < near while lifting every crest line
-   clear of the sky behind it. At noon the factor is exactly 0 and
-   the v0.2.22 tints are bit-for-bit the old ones. */
-const RIDGE_NIGHT_FLOOR = new THREE.Color(0x36486a);
+const BD_TINT_NOON = new THREE.Color(1.06, 1.10, 1.16);
+const BD_TINT_WHITE = new THREE.Color(1, 1, 1);
+const BD_TINT_NIGHT = new THREE.Color(0.14, 0.20, 0.34);
 function applyBackdrop(s) {
-  for (const L of backdropLayers) {
-    L.mat.color.copy(s.fog).lerp(s.hemiSky, L.mix).multiplyScalar(L.dark);
-    if (s.night > 0) L.mat.color.lerp(RIDGE_NIGHT_FLOOR, (0.30 + 0.35 * L.mix) * s.night);
-    L.mat.opacity = L.baseOpacity * (1 - 0.3 * s.night);
-  }
+  const tw = Math.max(0, Math.min(1, (s.sun.r - s.sun.b - 0.10) * 1.6));
+  bdMat.color.copy(BD_TINT_NOON).lerp(BD_TINT_WHITE, tw * (1 - s.night)).lerp(BD_TINT_NIGHT, s.night);
 }
 const seaBand = [];
 for (let i = 0; i < 42; i++) {
