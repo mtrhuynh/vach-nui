@@ -69,7 +69,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.31';
+const VN_VER = '0.2.33';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -997,6 +997,171 @@ function addMesh(geo, mat, x, y, z, parent) {
   halo.scale.set(2.4, 2.4, 1);
   halo.position.set(BUDDHA_POS.x + 0.25, (buddhaBaseY === null ? END_DISC.y : buddhaBaseY) + 0.8, BUDDHA_POS.z);
   scene.add(halo);
+}
+
+/* ================= Master Noel — walking greeter (ticket #27, v0.2.33) =====
+   Trang's correction 2026-11-15 22:03 (overrides the ticket's "seated near
+   the Buddha at the top" and "in place only, no walking routes"): Noel must
+   NOT sit at the peak next to the Buddha — that competes with the Buddha
+   for the seat. Instead he WALKS AROUND the lower arrival shelf to
+   welcome/greet arriving guests, and only OCCASIONALLY sits on a LOWER
+   rock. v1 (v0.2.32, seated at the peak (11.95,13.92,-4.90)) is discarded;
+   this v2 rebuilds from the clean v0.2.31 clone with the corrected
+   behaviour.
+   Route (probed, test63b/c): a 4-waypoint loop on the launch shelf, the
+   flat band z -6.3..-5.3 west of the bridge mouth, encircling the lotus
+   candle at (-1.08,-4.87). All segments gentle (max step 0.04..0.35,
+   range 0.21..0.77); all waypoints clear of blockers, 0.2..0.6 m off the
+   pilgrim corridor (z=-6), 10.6+ m from the bow spot, 1.7+ m from the
+   mouth — he greets beside the path, never on it, never at the peak.
+     W1 (-3.0,-6.2) y 13.12 | W2 (-0.2,-6.3) y 13.25 | W3 (0.3,-5.5) y 13.46
+     W4 (-2.8,-5.4) y 12.87 — the SIT rock (lower shelf, well below the peak).
+   Behaviour cycle: walk -> pause/idle 2-4 s at each waypoint (faces west,
+   toward arriving guests) -> sometimes bow (6 s, once) to greet -> walk
+   on. Every 3rd loop he sits at W4 for one sit cycle (~7.2 s) then
+   resumes. He is NOT a movement blocker (the player walks through him if
+   needed — the route is a visual greeting, not a wall).
+   Scale: raw model ~1.00 m tall -> 1.15 -> ~1.15 m (scene character scale).
+   Clips: idle 15.33 s, sit 7.17 s, walk 2.33 s, bow 6.00 s. The walk clip
+   has ROOT MOTION (Hips Z 0.002 -> 1.182): it is cloned and the Hips Z
+   drift zeroed so he walks in place while the group moves manually at the
+   clip's own pace (1.18 m / 2.33 s x 1.15 = 0.58 m/s, no foot sliding).
+   X sway + Y bob are kept. Feet: raw y ~0.05 in every clip (bind pose),
+   so the inner group is always lowered 0.06 x scale to plant them. */
+const NOEL_ROUTE = [
+  { x: -3.0, z: -6.2 }, // W1 NW
+  { x: -0.2, z: -6.3 }, // W2 NE (near the mouth)
+  { x: 0.3, z: -5.5 },  // W3 SE
+  { x: -2.8, z: -5.4 }, // W4 SW — sit rock
+];
+const NOEL_SIT_WP = 3; // W4
+const NOEL_SCALE = 1.15;
+const NOEL_WALK_SPEED = 0.58; // m/s (walk clip root motion 1.18 m / 2.33 s x 1.15)
+const NOEL_BOW_ROT_Y = -Math.PI / 2; // face west, toward arriving guests
+let noelGroup = null, noelInner = null, noelMixer = null, noelLoaded = false;
+let noelClips = {}; // name -> { clip, action }
+let noelClipName = null;
+let noelFadingOut = null; // { action, t } — crossfade-out tracker
+let noelState = 'idle'; // walk | idle | bow | sit
+let noelWp = 0; // current target waypoint index
+let noelStateT = 0; // time in current state
+let noelPauseT = 2; // idle pause duration (2-4 s, re-rolled each arrival)
+let noelLoops = 0; // completed loops (arrivals at W1)
+let noelTimeScale = 1; // test hook: scale Noel's dt (mixer + timers + movement)
+let noelNextAfterIdle = 'walk'; // 'walk' | 'bow' | 'sit'
+function noelPlayClip(name, loop) {
+  if (!noelMixer || !noelClips[name]) return;
+  const entry = noelClips[name];
+  const act = entry.action;
+  if (noelClipName && noelClips[noelClipName] && noelClips[noelClipName].action !== act) {
+    const old = noelClips[noelClipName].action;
+    old.fadeOut(0.3);
+    noelFadingOut = { action: old, t: 0 };
+  }
+  act.reset();
+  act.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+  act.clampWhenFinished = !loop;
+  act.fadeIn(0.3).play();
+  noelClipName = name;
+  // Feet sit at raw y ~0.05 in every clip (bind pose), so the inner group
+  // is always lowered 0.06 x scale to plant them on the ground.
+  if (noelInner) noelInner.position.y = -0.06 * NOEL_SCALE;
+}
+function noelUpdate(dt) {
+  if (!noelLoaded || !noelGroup) return;
+  const dtN = dt * noelTimeScale; // test time-scale (default 1)
+  if (noelMixer) noelMixer.update(dtN);
+  if (noelFadingOut) {
+    noelFadingOut.t += dtN;
+    if (noelFadingOut.t >= 0.35) { noelFadingOut.action.stop(); noelFadingOut = null; }
+  }
+  noelStateT += dtN;
+  const speed = NOEL_WALK_SPEED;
+  if (noelState === 'walk') {
+    const wp = NOEL_ROUTE[noelWp];
+    const dx = wp.x - noelGroup.position.x, dz = wp.z - noelGroup.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.15) {
+      noelGroup.position.x = wp.x; noelGroup.position.z = wp.z;
+      noelGroup.rotation.y = NOEL_BOW_ROT_Y; // face west, toward arrivals
+      if (noelWp === 0) noelLoops++; // arriving at W1 completes a loop
+      const sitHere = (noelWp === NOEL_SIT_WP) && (noelLoops % 3 === 2);
+      const bowHere = !sitHere && (Math.random() < 0.5);
+      noelNextAfterIdle = sitHere ? 'sit' : (bowHere ? 'bow' : 'walk');
+      noelState = 'idle';
+      noelStateT = 0;
+      noelPauseT = 2 + Math.random() * 2; // 2-4 s
+      noelPlayClip('idle', true);
+      return;
+    }
+    const step = Math.min(dist, speed * dtN);
+    const nx = noelGroup.position.x + (dx / dist) * step;
+    const nz = noelGroup.position.z + (dz / dist) * step;
+    noelGroup.position.x = nx; noelGroup.position.z = nz;
+    noelGroup.rotation.y = Math.atan2(dx, dz); // face movement direction
+    const gy = groundAt(nx, nz);
+    if (gy !== null) noelGroup.position.y = gy;
+    if (noelClipName !== 'walk') noelPlayClip('walk', true);
+  } else if (noelState === 'idle') {
+    if (noelStateT >= noelPauseT) {
+      if (noelNextAfterIdle === 'bow') {
+        noelState = 'bow'; noelStateT = 0;
+        noelPlayClip('bow', false);
+      } else if (noelNextAfterIdle === 'sit') {
+        noelState = 'sit'; noelStateT = 0;
+        noelPlayClip('sit', true);
+      } else {
+        noelWp = (noelWp + 1) % NOEL_ROUTE.length;
+        noelState = 'walk'; noelStateT = 0;
+        noelPlayClip('walk', true);
+      }
+    }
+  } else if (noelState === 'bow') {
+    if (noelStateT >= 6.2) { // bow clip is 6.00 s
+      noelWp = (noelWp + 1) % NOEL_ROUTE.length;
+      noelState = 'walk'; noelStateT = 0;
+      noelPlayClip('walk', true);
+    }
+  } else if (noelState === 'sit') {
+    if (noelStateT >= 7.5) { // one sit cycle (7.17 s) + a breath
+      noelWp = (noelWp + 1) % NOEL_ROUTE.length;
+      noelState = 'walk'; noelStateT = 0;
+      noelPlayClip('walk', true);
+    }
+  }
+}
+{
+  const g = new THREE.Group();
+  const start = NOEL_ROUTE[0];
+  const sy = groundAt(start.x, start.z);
+  g.position.set(start.x, sy === null ? 13.12 : sy, start.z);
+  g.rotation.y = NOEL_BOW_ROT_Y;
+  scene.add(g);
+  noelGroup = g;
+  new GLTFLoader(loadMgr).load('models/su-phu-noel-rigged.glb', (gltf) => {
+    const inner = new THREE.Group();
+    inner.scale.setScalar(NOEL_SCALE);
+    inner.add(gltf.scene);
+    gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    g.add(inner);
+    noelInner = inner;
+    noelMixer = new THREE.AnimationMixer(gltf.scene);
+    for (const name of ['idle', 'walk', 'bow', 'sit']) {
+      let clip = gltf.animations.find(a => a.name === name);
+      if (!clip) continue;
+      if (name === 'walk') {
+        clip = clip.clone();
+        const tr = clip.tracks.find(t => /Hips\.position$/.test(t.name));
+        if (tr) {
+          const z0 = tr.values[2];
+          for (let i = 0; i < tr.values.length / 3; i++) tr.values[i * 3 + 2] = z0;
+        }
+      }
+      noelClips[name] = { clip, action: noelMixer.clipAction(clip) };
+    }
+    noelPlayClip('idle', true);
+    noelLoaded = true;
+  }, undefined, () => {});
 }
 
 /* ================= Candle lamps (models/candles.glb clusters) =================
@@ -1981,6 +2146,7 @@ function animate() {
       sp.material.opacity = 0.16 * Math.sin(ph * Math.PI);
     }
   }
+  noelUpdate(dt); // Master Noel walking greeter (#27 v2)
   // camera target follows the avatar; camera rides along by the same delta
   camTmp.set(player.position.x, player.position.y + 1.0, player.position.z);
   camDelta.copy(camTmp).sub(controls.target).multiplyScalar(Math.min(1, 5 * dt));
@@ -2045,6 +2211,12 @@ window.__vn = {
   camera: () => camera, controls: () => controls,
   get camManualUntil() { return camManualUntil; },
   get camOrbiting() { return camOrbiting; },
+  noel: () => noelGroup, noelMixer: () => noelMixer, noelClip: () => noelClipName, noelLoaded: () => noelLoaded,
+  noelPos: () => noelGroup ? { x: +noelGroup.position.x.toFixed(2), y: +noelGroup.position.y.toFixed(2), z: +noelGroup.position.z.toFixed(2) } : null,
+  noelState: () => noelState, noelWp: () => noelWp, noelLoops: () => noelLoops, noelRoute: () => NOEL_ROUTE,
+  noelSetTimeScale: (m) => { noelTimeScale = m; },
+  noelForceSit: () => { const s = NOEL_ROUTE[NOEL_SIT_WP]; const gy = groundAt(s.x, s.z); noelGroup.position.set(s.x, gy === null ? 12.87 : gy, s.z); noelGroup.rotation.y = NOEL_BOW_ROT_Y; noelWp = NOEL_SIT_WP; noelState = 'sit'; noelStateT = 0; noelPlayClip('sit', true); },
+  noelForceBow: () => { noelState = 'bow'; noelStateT = 0; noelGroup.rotation.y = NOEL_BOW_ROT_Y; noelPlayClip('bow', false); },
   saveSession,
 };
 animate();
