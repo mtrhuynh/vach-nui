@@ -65,11 +65,18 @@ setInterval(function () {
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFLoader as _GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+/* #63 (v0.2.34): every GLTFLoader gets the Meshopt decoder, so the
+   meshopt-compressed baby monk (EXT_meshopt_compression) loads; plain
+   models are unaffected. (Same pattern as Phong Thien v2.90.18.) */
+class GLTFLoader extends _GLTFLoader {
+  constructor(manager) { super(manager); this.setMeshoptDecoder(MeshoptDecoder); }
+}
 const bootMark = window.bootMark || function () {};
 bootMark('imports-ok');
 
-const VN_VER = '0.2.33';
+const VN_VER = '0.2.34';
 
 /* ================= World layout data (built geometry) =================
    The island is models/mountain.glb scaled x40, wrap y=-8.12 (apron band,
@@ -254,6 +261,11 @@ let stillT = 0;                   // seconds without movement (breath gate)
 let walkPhase = 0, walkBlend = 0; // gait cycle + ease in/out (~0.15 s)
 let bowPhase = 'enter', bowT = 0, bowCount = 0, bowExitDur = 0.5; // temple-pattern bow sub-machine
 let bowPitch = 0, bowPitch0 = 0, bowScale = 1;   // currently applied bow pose
+/* #63 (v0.2.34): rigged baby monk — mixer + clip actions. The player is
+   now a rigged model (walk/idle/bow/sit); the walk clip drives the legs
+   so he steps instead of gliding. Bow/kneel stay procedural (upperG
+   pitch + bodyG squash) so the pilgrimage timing is unchanged. */
+let monkMixer = null, monkWalkAct = null, monkIdleAct = null, monkClip = null;
 let recDur = 0.4, recXa0 = 0;
 let onEndPrev = false, walkInputPrev = false;
 /* Pilgrimage (v0.2.14): halved walk speed; a `journey` is an armed
@@ -1493,7 +1505,7 @@ scene.add(player);
 })();
 
 let monkLoaded = false;
-new GLTFLoader(loadMgr).load('models/monk2.glb?v=3', (gltf) => {
+new GLTFLoader(loadMgr).load('models/baby-monk-rigged.glb?v=1', (gltf) => {
   const S = 1.15 / 1.957;
   const inner = new THREE.Group();
   inner.scale.setScalar(S);
@@ -1507,6 +1519,22 @@ new GLTFLoader(loadMgr).load('models/monk2.glb?v=3', (gltf) => {
   bodyG = new THREE.Group(); bodyG.add(pivot);
   upperG = pivot;
   rigG.add(bodyG);
+  /* #63: rigged baby monk — mixer + clips. Zero the walk clip's root
+     motion (Hips Z pin, the Phong Thien Noel pattern) so he walks in
+     place while the player system moves him; the clip's own pace sets
+     the step rate. */
+  monkMixer = new THREE.AnimationMixer(gltf.scene);
+  const findClip = (n) => gltf.animations.find(a => a.name === n);
+  const idleC = findClip('idle'), walkC = findClip('walk');
+  if (walkC) {
+    const tr0 = walkC.tracks.find(t => /Hips\.position$/.test(t.name));
+    const wc = walkC.clone();
+    const tr = wc.tracks.find(t => /Hips\.position$/.test(t.name));
+    if (tr) { const z0 = tr.values[2]; for (let i = 0; i < tr.values.length / 3; i++) tr.values[i * 3 + 2] = z0; }
+    monkWalkAct = monkMixer.clipAction(wc);
+    monkWalkAct.setLoop(THREE.LoopRepeat, Infinity);
+  }
+  if (idleC) { monkIdleAct = monkMixer.clipAction(idleC); monkIdleAct.play(); monkClip = 'idle'; }
   /* If a session snapshot was restored at boot, re-assert it once now that
      the model swap completed, in case the load path re-seated the player. */
   if (sessionRestored) {
@@ -1898,12 +1926,34 @@ function updateAnim(dt, t) {
 
   if (animState === 'idle' && moving) animState = 'walk';
   else if (animState === 'walk' && !moving && walkBlend <= 0.001) animState = 'idle';
+  /* #63: drive the rigged monk's clips. Walk while moving (timeScale
+     matched to ground speed so the feet keep up), idle otherwise.
+     Bow/xa/recover keep the procedural upper-body pitch. */
+  if (monkMixer) {
+    const want = (animState === 'walk' && moving) ? 'walk' : 'idle';
+    if (want !== monkClip) {
+      const from = monkClip === 'walk' ? monkWalkAct : monkIdleAct;
+      const to = want === 'walk' ? monkWalkAct : monkIdleAct;
+      if (from && to && from !== to) { from.fadeOut(0.3); to.reset().fadeIn(0.3).play(); }
+      else if (to) { to.play(); }
+      monkClip = want;
+    }
+    if (monkClip === 'walk' && monkWalkAct) {
+      /* Walk clip natural pace at this scale: drift 0.737 m / 2.33 s x S.
+         Match the ground speed (capped so the legs never blur). */
+      const S = 1.15 / 1.957;
+      const nat = (0.737 / 2.33) * S;
+      monkWalkAct.timeScale = Math.max(0.5, Math.min(2.5, speed / Math.max(nat, 0.01)));
+    }
+    monkMixer.update(dt);
+  }
 
   // Gait: bob + roll + slight forward pitch, eased by walkBlend (~0.15 s).
   const blendGoal = moving ? 1 : 0;
   walkBlend += Math.max(-dt / 0.15, Math.min(dt / 0.15, blendGoal - walkBlend));
   if (moving) walkPhase += dist * 5.2;
-  bodyG.position.y = Math.sin(walkPhase) * 0.022 * walkBlend;
+  const bobAmp = (monkClip === 'walk') ? 0 : 0.022; // #63: walk clip carries its own bob
+  bodyG.position.y = Math.sin(walkPhase) * bobAmp * walkBlend;
   const sway = (animState === 'idle' && stillT > 1) ? Math.sin(t * 0.9) * 0.004 : 0;
   bodyG.rotation.z = Math.sin(walkPhase) * 0.02 * walkBlend + sway;
   bodyG.rotation.x = (0.03 + Math.min(speed, 3) * 0.01) * walkBlend;
@@ -2168,6 +2218,8 @@ function animate() {
 window.__vn = {
   get player() { return player; }, get bodyG() { return bodyG; },
   get upperG() { return upperG; }, get bowGroup() { return bowGroup; },
+  get monkLoaded() { return monkLoaded; }, get monkClip() { return monkClip; },
+  get monkWalkTS() { return monkWalkAct ? monkWalkAct.timeScale : null; },
   get state() { return animState; }, get bowPhase() { return bowPhase; },
   get bowPitch() { return bowPitch; }, get bowScale() { return bowScale; },
   get walkBlend() { return walkBlend; },
